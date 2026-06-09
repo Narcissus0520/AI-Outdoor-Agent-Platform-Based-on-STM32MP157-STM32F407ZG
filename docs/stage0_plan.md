@@ -11,13 +11,15 @@ Stage 0 目标：完成 Linux 用户态 Runtime 原型，为后续 GNSS、Sensor
 - [x] 实现 NMEA 文件回放 `FileReplayInput`
 - [x] 添加 `data/nmea_sample.txt`
 - [x] 实现 `main.cpp` 主循环，逐行读取 NMEA 并打印日志
-- [ ] 添加自动化测试或验证脚本
 
 ## Stage 0.2: 日志与配置模块增强
 
-- [ ] 增加日志级别配置
-- [ ] 增加基础配置文件加载
-- [ ] 支持配置默认 NMEA 输入路径
+- [x] 增加日志级别配置
+- [x] 增加基础配置文件加载
+- [x] 支持配置默认 NMEA 输入路径
+- [x] 支持命令行覆盖 NMEA 输入路径
+- [x] 支持命令行覆盖日志级别
+- [x] 添加最小 PowerShell 验证脚本
 
 ## Stage 0.3: Runtime Manager 与 Service 抽象
 

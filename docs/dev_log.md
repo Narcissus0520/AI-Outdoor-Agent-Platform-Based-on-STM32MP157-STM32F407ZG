@@ -1,5 +1,51 @@
 # Dev Log
 
+## 2026-06-10
+
+### 本次完成
+
+- 完成 Stage 0.2 日志与配置模块增强。
+- 新增 `ConfigLoader` 和 `AppConfig`，支持加载 `config/runtime.conf`。
+- 日志模块新增 `debug/info/warn/error` 最小日志级别过滤。
+- 主程序支持 `--config`、`--input`、`--log-level` 参数，并兼容 Stage 0.1 的直接 NMEA 文件路径用法。
+- 新增最小 PowerShell 验证脚本。
+- 新增配置格式 ADR。
+
+### 修改文件
+
+- `.gitattributes`
+- `CMakeLists.txt`
+- `README.md`
+- `config/runtime.conf`
+- `docs/adr/0002-use-simple-key-value-config.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage0_plan.md`
+- `include/config/app_config.h`
+- `include/config/config_loader.h`
+- `include/log/logger.h`
+- `scripts/verify_stage0_2.ps1`
+- `src/config/config_loader.cpp`
+- `src/log/logger.cpp`
+- `src/main.cpp`
+
+### 验证结果
+
+- `cmake -S . -B build` 未执行成功：当前环境中 `cmake` 不在 PATH。
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify_stage0_2.ps1
+```
+
+- 补充验证结果：脚本使用本机 `g++` 成功编译，并运行 `outdoor_core_runtime` 读取配置文件与样例 NMEA 数据。
+- 脚本同时检查默认运行输出包含 NMEA 行，并检查 `--log-level warn` 会抑制 INFO 日志。
+
+### 后续 TODO
+
+- 安装或配置 CMake 后执行标准 CMake 构建验证。
+- 推进 Stage 0.3 Runtime Manager 与 Service 抽象。
+
 ## 2026-06-09
 
 ### 本次完成

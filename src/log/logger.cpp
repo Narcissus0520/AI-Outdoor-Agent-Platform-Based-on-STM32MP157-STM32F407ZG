@@ -1,6 +1,8 @@
 #include "log/logger.h"
 
 #include <chrono>
+#include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
@@ -10,18 +12,14 @@ namespace outdoor::log {
 
 namespace {
 
-const char* levelToString(LogLevel level)
-{
-    switch (level) {
-    case LogLevel::Info:
-        return "INFO";
-    case LogLevel::Warn:
-        return "WARN";
-    case LogLevel::Error:
-        return "ERROR";
-    }
+LogLevel minimumLevel = LogLevel::Info;
 
-    return "UNKNOWN";
+std::string toLower(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
 }
 
 std::string currentTimestamp()
@@ -43,6 +41,55 @@ std::string currentTimestamp()
 
 } // namespace
 
+bool parseLogLevel(const std::string& value, LogLevel& level)
+{
+    const std::string normalized = toLower(value);
+    if (normalized == "debug") {
+        level = LogLevel::Debug;
+        return true;
+    }
+    if (normalized == "info") {
+        level = LogLevel::Info;
+        return true;
+    }
+    if (normalized == "warn" || normalized == "warning") {
+        level = LogLevel::Warn;
+        return true;
+    }
+    if (normalized == "error") {
+        level = LogLevel::Error;
+        return true;
+    }
+
+    return false;
+}
+
+const char* logLevelToString(LogLevel level)
+{
+    switch (level) {
+    case LogLevel::Debug:
+        return "DEBUG";
+    case LogLevel::Info:
+        return "INFO";
+    case LogLevel::Warn:
+        return "WARN";
+    case LogLevel::Error:
+        return "ERROR";
+    }
+
+    return "UNKNOWN";
+}
+
+void Logger::setMinimumLevel(LogLevel level)
+{
+    minimumLevel = level;
+}
+
+void Logger::debug(const std::string& message)
+{
+    write(LogLevel::Debug, message);
+}
+
 void Logger::info(const std::string& message)
 {
     write(LogLevel::Info, message);
@@ -60,9 +107,13 @@ void Logger::error(const std::string& message)
 
 void Logger::write(LogLevel level, const std::string& message)
 {
+    if (level < minimumLevel) {
+        return;
+    }
+
     auto& output = (level == LogLevel::Error) ? std::cerr : std::cout;
     output << "[" << currentTimestamp() << "] "
-           << "[" << levelToString(level) << "] "
+           << "[" << logLevelToString(level) << "] "
            << message << '\n';
 }
 
