@@ -4,3 +4,4 @@ out/
 *.obj
 *.o
 *.log
+runtime/

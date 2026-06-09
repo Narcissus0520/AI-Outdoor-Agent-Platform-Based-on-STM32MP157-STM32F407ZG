@@ -70,6 +70,8 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
 
         if (key == "nmea_input_path") {
             config.nmeaInputPath = value;
+        } else if (key == "status_output_path") {
+            config.statusOutputPath = value;
         } else if (key == "log_level") {
             outdoor::log::LogLevel parsedLevel {};
             if (!outdoor::log::parseLogLevel(value, parsedLevel)) {

@@ -1,5 +1,61 @@
 # Dev Log
 
+## 2026-06-10 - Stage 0.5
+
+### 本次完成
+
+- 完成最小 IPC/状态发布原型。
+- 新增 `runtime::RuntimeStatus` 和 Runtime 状态枚举。
+- `RuntimeManager` 维护基础状态、服务数量、已启动服务数量和最近错误。
+- 新增 `ipc::StatusPublisher`，将 Runtime 状态写入 `runtime/status.txt`。
+- 配置文件新增 `status_output_path`。
+- Runtime 验证脚本增加状态文件生成和字段检查。
+- 新增文件型状态发布 ADR。
+
+### 修改文件
+
+- `.gitignore`
+- `CMakeLists.txt`
+- `README.md`
+- `config/runtime.conf`
+- `docs/adr/0005-file-status-ipc-prototype.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage0_plan.md`
+- `include/config/app_config.h`
+- `include/ipc/status_publisher.h`
+- `include/runtime/runtime_manager.h`
+- `include/runtime/runtime_status.h`
+- `scripts/verify_runtime.ps1`
+- `src/config/config_loader.cpp`
+- `src/ipc/status_publisher.cpp`
+- `src/main.cpp`
+- `src/runtime/runtime_manager.cpp`
+- `src/runtime/runtime_status.cpp`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify_runtime.ps1
+```
+
+- 验证结果：CMake 构建通过，Runtime 验证脚本通过，状态文件输出包含 `state=stopped` 和 `service_count=1`。
+
+### 后续 TODO
+
+- 评估 Unix domain socket 状态查询接口。
+- 增加状态文件原子替换写入。
+- 为 Runtime 状态输出补充更标准的测试。
+
 ## 2026-06-10 - Stage 0.4
 
 ### 本次完成

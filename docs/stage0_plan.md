@@ -38,9 +38,11 @@ Stage 0 目标：完成 Linux 用户态 Runtime 原型，为后续 GNSS、Sensor
 
 ## Stage 0.5: IPC 原型与运行状态输出
 
-- [ ] 评估 IPC 方案
-- [ ] 实现最小 IPC 原型
-- [ ] 输出 Runtime 基础状态
+- [x] 评估 IPC 方案
+- [x] 实现最小 IPC 原型
+- [x] 输出 Runtime 基础状态
+- [ ] 评估 Unix domain socket 状态查询接口
+- [ ] 增加状态文件原子替换写入
 
 ## 当前限制
 
