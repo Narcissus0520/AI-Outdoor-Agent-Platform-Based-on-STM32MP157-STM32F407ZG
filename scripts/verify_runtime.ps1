@@ -9,6 +9,8 @@ try {
         "$PSScriptRoot\..\src\config\config_loader.cpp" `
         "$PSScriptRoot\..\src\input\file_replay_input.cpp" `
         "$PSScriptRoot\..\src\log\logger.cpp" `
+        "$PSScriptRoot\..\src\runtime\runtime_manager.cpp" `
+        "$PSScriptRoot\..\src\services\gnss_replay_service.cpp" `
         -o $output
 
     $defaultOutput = & $output --config "$PSScriptRoot\..\config\runtime.conf" 2>&1
@@ -29,7 +31,7 @@ try {
         throw "warn log level did not suppress INFO output"
     }
 
-    Write-Host "Stage 0.2 verification passed."
+    Write-Host "Stage 0.3 runtime verification passed."
 } finally {
     Start-Sleep -Milliseconds 300
     if (Test-Path $output) {

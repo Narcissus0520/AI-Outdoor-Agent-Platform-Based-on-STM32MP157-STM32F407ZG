@@ -1,5 +1,54 @@
 # Dev Log
 
+## 2026-06-10 - Stage 0.3
+
+### 本次完成
+
+- 完成 Runtime Manager 与 Service 抽象。
+- 新增 `runtime::IService`，定义 `start/run/stop` 生命周期。
+- 新增 `runtime::RuntimeManager`，支持顺序启动、运行和停止服务。
+- 新增 `services::GnssReplayService`，将 NMEA 文件回放封装为 Runtime 服务。
+- `main.cpp` 改为负责配置加载、命令行覆盖和 Runtime 组装。
+- 新增 Runtime 服务架构 ADR。
+
+### 修改文件
+
+- `CMakeLists.txt`
+- `README.md`
+- `docs/adr/0003-runtime-service-architecture.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage0_plan.md`
+- `include/runtime/i_service.h`
+- `include/runtime/runtime_manager.h`
+- `include/services/gnss_replay_service.h`
+- `scripts/verify_runtime.ps1`
+- `src/main.cpp`
+- `src/runtime/runtime_manager.cpp`
+- `src/services/gnss_replay_service.cpp`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify_runtime.ps1
+```
+
+- 验证结果：CMake 构建通过，Runtime 验证脚本通过。
+
+### 后续 TODO
+
+- 推进 Stage 0.4：GNSS mock 服务与最小 NMEA Parser。
+- 为 Runtime Manager 补充更标准的 CTest 或单元测试。
+
 ## 2026-06-10
 
 ### 本次完成

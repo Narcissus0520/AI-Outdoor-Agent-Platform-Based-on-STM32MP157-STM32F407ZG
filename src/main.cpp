@@ -1,8 +1,10 @@
 #include "config/config_loader.h"
-#include "input/file_replay_input.h"
 #include "log/logger.h"
+#include "runtime/runtime_manager.h"
+#include "services/gnss_replay_service.h"
 
 #include <iostream>
+#include <memory>
 #include <string>
 
 namespace {
@@ -86,22 +88,21 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info(std::string("Log level: ") + outdoor::log::logLevelToString(config.logLevel));
     outdoor::log::Logger::info("Input source: " + config.nmeaInputPath);
 
-    outdoor::input::FileReplayInput input(config.nmeaInputPath);
-    if (!input.open()) {
-        outdoor::log::Logger::error("Failed to open NMEA input file: " + config.nmeaInputPath);
+    outdoor::runtime::RuntimeManager runtime;
+    runtime.addService(std::make_unique<outdoor::services::GnssReplayService>(config.nmeaInputPath));
+
+    if (!runtime.start()) {
+        outdoor::log::Logger::error("Outdoor Core Runtime failed to start");
         return 1;
     }
 
-    std::string line;
-    while (input.readLine(line)) {
-        if (line.empty()) {
-            continue;
-        }
-
-        outdoor::log::Logger::info("NMEA: " + line);
+    if (!runtime.run()) {
+        runtime.stop();
+        outdoor::log::Logger::error("Outdoor Core Runtime failed while running");
+        return 1;
     }
 
-    input.close();
+    runtime.stop();
     outdoor::log::Logger::info("Outdoor Core Runtime stopped");
     return 0;
 }

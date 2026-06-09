@@ -23,9 +23,10 @@ Stage 0 目标：完成 Linux 用户态 Runtime 原型，为后续 GNSS、Sensor
 
 ## Stage 0.3: Runtime Manager 与 Service 抽象
 
-- [ ] 定义 Service 生命周期接口
-- [ ] 实现 Runtime Manager
-- [ ] 将 GNSS mock/file replay 封装为服务
+- [x] 定义 Service 生命周期接口
+- [x] 实现 Runtime Manager
+- [x] 将 GNSS mock/file replay 封装为服务
+- [x] 更新 Runtime 验证脚本
 
 ## Stage 0.4: GNSS Mock 服务与 NMEA Parser
 
