@@ -1,5 +1,6 @@
 #include "services/gnss_replay_service.h"
 
+#include "gnss/nmea_parser.h"
 #include "log/logger.h"
 
 #include <utility>
@@ -34,6 +35,13 @@ bool GnssReplayService::run()
         }
 
         outdoor::log::Logger::info("NMEA: " + line);
+
+        std::string parseError;
+        if (parser_.parseLine(line, currentFix_, parseError)) {
+            outdoor::log::Logger::info(outdoor::gnss::formatGnssFix(currentFix_));
+        } else if (!parseError.empty()) {
+            outdoor::log::Logger::debug("NMEA parse skipped: " + parseError);
+        }
     }
 
     return true;

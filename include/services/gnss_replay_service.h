@@ -1,6 +1,7 @@
 #pragma once
 
 #include "input/file_replay_input.h"
+#include "gnss/nmea_parser.h"
 #include "runtime/i_service.h"
 
 #include <string>
@@ -18,6 +19,8 @@ public:
 
 private:
     outdoor::input::FileReplayInput input_;
+    outdoor::gnss::NmeaParser parser_;
+    outdoor::gnss::GnssFix currentFix_;
 };
 
 } // namespace outdoor::services

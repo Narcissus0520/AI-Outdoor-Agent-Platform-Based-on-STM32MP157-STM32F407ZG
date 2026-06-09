@@ -30,9 +30,11 @@ Stage 0 目标：完成 Linux 用户态 Runtime 原型，为后续 GNSS、Sensor
 
 ## Stage 0.4: GNSS Mock 服务与 NMEA Parser
 
-- [ ] 设计 GNSS 数据模型
-- [ ] 实现最小 NMEA Parser
-- [ ] 输出基础定位状态
+- [x] 设计 GNSS 数据模型
+- [x] 实现最小 NMEA Parser
+- [x] 输出基础定位状态
+- [ ] 增加 NMEA checksum 校验
+- [ ] 补充更多 NMEA 样例和边界测试
 
 ## Stage 0.5: IPC 原型与运行状态输出
 

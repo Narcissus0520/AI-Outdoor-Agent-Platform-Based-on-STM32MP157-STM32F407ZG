@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(ai_outdoor_agent_platform
-    VERSION 0.3.0
+    VERSION 0.4.0
     LANGUAGES CXX
 )
 
@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(outdoor_core_runtime
     src/main.cpp
     src/config/config_loader.cpp
+    src/gnss/nmea_parser.cpp
     src/input/file_replay_input.cpp
     src/log/logger.cpp
     src/runtime/runtime_manager.cpp

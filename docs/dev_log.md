@@ -1,5 +1,53 @@
 # Dev Log
 
+## 2026-06-10 - Stage 0.4
+
+### 本次完成
+
+- 完成 GNSS 基础数据模型 `GnssFix`。
+- 新增最小 `NmeaParser`，支持解析 RMC/GGA 基础字段。
+- `GnssReplayService` 在文件回放时输出原始 NMEA 和基础定位状态。
+- Runtime 验证脚本增加 `GNSS fix:` 输出检查。
+- 新增最小 NMEA Parser ADR。
+
+### 修改文件
+
+- `CMakeLists.txt`
+- `README.md`
+- `docs/adr/0004-minimal-nmea-parser.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage0_plan.md`
+- `include/gnss/gnss_fix.h`
+- `include/gnss/nmea_parser.h`
+- `include/services/gnss_replay_service.h`
+- `scripts/verify_runtime.ps1`
+- `src/gnss/nmea_parser.cpp`
+- `src/services/gnss_replay_service.cpp`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify_runtime.ps1
+```
+
+- 验证结果：CMake 构建通过，Runtime 验证脚本通过，输出包含 `GNSS fix:`。
+
+### 后续 TODO
+
+- 增加 NMEA checksum 校验。
+- 补充更多 NMEA 样例和边界测试。
+- 推进 Stage 0.5：IPC 原型与基础运行状态输出。
+
 ## 2026-06-10 - Stage 0.3
 
 ### 本次完成

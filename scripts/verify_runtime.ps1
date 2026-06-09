@@ -7,6 +7,7 @@ try {
         -I"$PSScriptRoot\..\include" `
         "$PSScriptRoot\..\src\main.cpp" `
         "$PSScriptRoot\..\src\config\config_loader.cpp" `
+        "$PSScriptRoot\..\src\gnss\nmea_parser.cpp" `
         "$PSScriptRoot\..\src\input\file_replay_input.cpp" `
         "$PSScriptRoot\..\src\log\logger.cpp" `
         "$PSScriptRoot\..\src\runtime\runtime_manager.cpp" `
@@ -22,6 +23,10 @@ try {
         throw "default runtime output did not contain NMEA lines"
     }
 
+    if (($defaultOutput -join "`n") -notmatch "GNSS fix:") {
+        throw "default runtime output did not contain parsed GNSS fix"
+    }
+
     $warnOutput = & $output --config "$PSScriptRoot\..\config\runtime.conf" --log-level warn 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "warn-level runtime execution failed"
@@ -31,7 +36,7 @@ try {
         throw "warn log level did not suppress INFO output"
     }
 
-    Write-Host "Stage 0.3 runtime verification passed."
+    Write-Host "Stage 0.4 runtime verification passed."
 } finally {
     Start-Sleep -Milliseconds 300
     if (Test-Path $output) {
