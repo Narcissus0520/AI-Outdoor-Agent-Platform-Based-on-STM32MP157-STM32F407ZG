@@ -20,16 +20,24 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
             fs::create_directories(parent);
         }
 
-        std::ofstream stream(outputPath_, std::ios::trunc);
-        if (!stream.is_open()) {
-            error = "failed to open status output path: " + outputPath_;
-            return false;
+        const fs::path tempPath = path.string() + ".tmp";
+        {
+            std::ofstream stream(tempPath, std::ios::trunc);
+            if (!stream.is_open()) {
+                error = "failed to open temporary status output path: " + tempPath.string();
+                return false;
+            }
+
+            stream << "state=" << outdoor::runtime::runtimeStateToString(status.state) << '\n'
+                   << "service_count=" << status.serviceCount << '\n'
+                   << "started_service_count=" << status.startedServiceCount << '\n'
+                   << "last_error=" << status.lastError << '\n';
         }
 
-        stream << "state=" << outdoor::runtime::runtimeStateToString(status.state) << '\n'
-               << "service_count=" << status.serviceCount << '\n'
-               << "started_service_count=" << status.startedServiceCount << '\n'
-               << "last_error=" << status.lastError << '\n';
+        if (fs::exists(path)) {
+            fs::remove(path);
+        }
+        fs::rename(tempPath, path);
     } catch (const fs::filesystem_error& exception) {
         error = exception.what();
         return false;

@@ -1,5 +1,6 @@
 #include "gnss/nmea_parser.h"
 
+#include <cctype>
 #include <cstdlib>
 #include <iomanip>
 #include <sstream>
@@ -63,6 +64,66 @@ bool parseInt(const std::string& value, int& output)
     return true;
 }
 
+int hexValue(char value)
+{
+    if (value >= '0' && value <= '9') {
+        return value - '0';
+    }
+    if (value >= 'A' && value <= 'F') {
+        return value - 'A' + 10;
+    }
+    if (value >= 'a' && value <= 'f') {
+        return value - 'a' + 10;
+    }
+
+    return -1;
+}
+
+bool validateChecksum(const std::string& line, std::string& error)
+{
+    if (line.empty() || line[0] != '$') {
+        error = "NMEA sentence does not start with '$'";
+        return false;
+    }
+
+    const auto checksumPosition = line.find('*');
+    if (checksumPosition == std::string::npos) {
+        error = "NMEA sentence missing checksum";
+        return false;
+    }
+
+    if (checksumPosition + 2 >= line.size()) {
+        error = "NMEA checksum is too short";
+        return false;
+    }
+
+    const int high = hexValue(line[checksumPosition + 1]);
+    const int low = hexValue(line[checksumPosition + 2]);
+    if (high < 0 || low < 0) {
+        error = "NMEA checksum contains non-hex characters";
+        return false;
+    }
+
+    unsigned char actual = 0;
+    for (std::size_t index = 1; index < checksumPosition; ++index) {
+        actual ^= static_cast<unsigned char>(line[index]);
+    }
+
+    const unsigned char expected = static_cast<unsigned char>((high << 4) | low);
+    if (actual != expected) {
+        std::ostringstream message;
+        message << "NMEA checksum mismatch: expected "
+                << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+                << static_cast<int>(expected)
+                << ", calculated "
+                << std::setw(2) << static_cast<int>(actual);
+        error = message.str();
+        return false;
+    }
+
+    return true;
+}
+
 bool parseCoordinate(const std::string& value, const std::string& hemisphere, double& degrees)
 {
     double raw = 0.0;
@@ -88,6 +149,10 @@ bool parseCoordinate(const std::string& value, const std::string& hemisphere, do
 bool NmeaParser::parseLine(const std::string& line, GnssFix& fix, std::string& error) const
 {
     error.clear();
+    if (!validateChecksum(line, error)) {
+        return false;
+    }
+
     const std::string type = sentenceType(line);
     if (type == "RMC") {
         return parseRmc(line, fix, error);

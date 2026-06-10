@@ -1,5 +1,54 @@
 # Dev Log
 
+## 2026-06-10 - Stage 0 Plan Closure
+
+### 本次完成
+
+- 闭环 `docs/stage0_plan.md` 中 Stage 0.4 和 Stage 0.5 的剩余未完成项。
+- NMEA Parser 增加 checksum 校验。
+- 修正 `data/nmea_sample.txt` 中不匹配的 checksum。
+- 新增 `data/nmea_edge_cases.txt`，覆盖南/西半球坐标、无效定位和错误 checksum。
+- Runtime 验证脚本增加边界样例和 checksum mismatch 检查。
+- `StatusPublisher` 改为先写临时文件，再替换状态文件。
+- 新增 Unix domain socket 状态查询接口评估 ADR。
+
+### 修改文件
+
+- `README.md`
+- `data/nmea_sample.txt`
+- `data/nmea_edge_cases.txt`
+- `docs/adr/0004-minimal-nmea-parser.md`
+- `docs/adr/0005-file-status-ipc-prototype.md`
+- `docs/adr/0006-evaluate-unix-domain-status-query.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage0_plan.md`
+- `scripts/verify_runtime.ps1`
+- `src/gnss/nmea_parser.cpp`
+- `src/ipc/status_publisher.cpp`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify_runtime.ps1
+```
+
+- 验证结果：CMake 构建通过，Runtime 验证脚本通过，边界样例和 checksum mismatch 检查通过。
+
+### 后续 TODO
+
+- Stage 1 接入真实 UBLOX-M10 串口数据。
+- 根据真实 Linux 部署环境推进 Unix domain socket 状态查询接口。
+
 ## 2026-06-10 - Stage 0.5
 
 ### 本次完成

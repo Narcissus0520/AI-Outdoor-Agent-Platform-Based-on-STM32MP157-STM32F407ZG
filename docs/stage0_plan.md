@@ -33,16 +33,16 @@ Stage 0 目标：完成 Linux 用户态 Runtime 原型，为后续 GNSS、Sensor
 - [x] 设计 GNSS 数据模型
 - [x] 实现最小 NMEA Parser
 - [x] 输出基础定位状态
-- [ ] 增加 NMEA checksum 校验
-- [ ] 补充更多 NMEA 样例和边界测试
+- [x] 增加 NMEA checksum 校验
+- [x] 补充更多 NMEA 样例和边界测试
 
 ## Stage 0.5: IPC 原型与运行状态输出
 
 - [x] 评估 IPC 方案
 - [x] 实现最小 IPC 原型
 - [x] 输出 Runtime 基础状态
-- [ ] 评估 Unix domain socket 状态查询接口
-- [ ] 增加状态文件原子替换写入
+- [x] 评估 Unix domain socket 状态查询接口
+- [x] 增加状态文件原子替换写入
 
 ## 当前限制
 

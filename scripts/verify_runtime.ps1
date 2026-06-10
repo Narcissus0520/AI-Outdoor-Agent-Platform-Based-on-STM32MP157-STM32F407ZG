@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $output = Join-Path $PSScriptRoot "..\outdoor_core_runtime_verify.exe"
 $statusOutput = Join-Path $PSScriptRoot "..\runtime\status_verify.txt"
+$edgeStatusOutput = Join-Path $PSScriptRoot "..\runtime\status_edge_verify.txt"
 
 try {
     g++ -std=c++17 -Wall -Wextra -Wpedantic `
@@ -43,6 +44,24 @@ try {
         throw "runtime status output did not report service count"
     }
 
+    $edgeOutput = & $output --config "$PSScriptRoot\..\config\runtime.conf" --input "$PSScriptRoot\..\data\nmea_edge_cases.txt" --status-output $edgeStatusOutput --log-level debug 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "edge-case runtime execution failed"
+    }
+
+    $edgeText = $edgeOutput -join "`n"
+    if ($edgeText -notmatch "lat=-37\.860833") {
+        throw "edge-case runtime output did not contain parsed southern latitude"
+    }
+
+    if ($edgeText -notmatch "lon=-145\.122667") {
+        throw "edge-case runtime output did not contain parsed western longitude"
+    }
+
+    if ($edgeText -notmatch "NMEA checksum mismatch") {
+        throw "edge-case runtime output did not report invalid checksum"
+    }
+
     $warnOutput = & $output --config "$PSScriptRoot\..\config\runtime.conf" --status-output $statusOutput --log-level warn 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "warn-level runtime execution failed"
@@ -60,5 +79,8 @@ try {
     }
     if (Test-Path $statusOutput) {
         Remove-Item -LiteralPath $statusOutput -Force
+    }
+    if (Test-Path $edgeStatusOutput) {
+        Remove-Item -LiteralPath $edgeStatusOutput -Force
     }
 }
