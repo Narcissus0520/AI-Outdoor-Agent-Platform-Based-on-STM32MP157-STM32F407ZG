@@ -1,5 +1,121 @@
 # Dev Log
 
+## 2026-06-11 - Monorepo Structure
+
+### 本次完成
+
+- 将 MP157 Linux Runtime 工程移动到 `mp157/outdoor-core-service/`。
+- 新增 `f407/sensor-hub/`、`common/protocol/`、`tools/` 和根级 `scripts/`。
+- 根目录 `README.md` 改为 Monorepo 总项目说明。
+- `mp157/outdoor-core-service/README.md` 改为模块级编译和运行说明。
+- 新增 `docs/repo_structure.md` 说明仓库结构。
+- 新增 `scripts/build_mp157.sh`，用于从仓库根目录构建 MP157 Runtime。
+
+### 修改文件
+
+- `README.md`
+- `docs/repo_structure.md`
+- `docs/project_design.md`
+- `docs/mcu_protocol.md`
+- `docs/dev_log.md`
+- `scripts/build_mp157.sh`
+- `mp157/outdoor-core-service/`
+- `f407/sensor-hub/.gitkeep`
+- `common/protocol/.gitkeep`
+- `tools/.gitkeep`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build
+cmake --build mp157/outdoor-core-service/build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1
+```
+
+- 已执行仓库级构建脚本验证：
+
+```bash
+scripts/build_mp157.sh
+```
+
+- 验证结果：MP157 Runtime CMake 构建通过，模块验证脚本通过，仓库级构建脚本在补齐 shell PATH 后通过。
+
+### 后续 TODO
+
+- 后续小 stage 再处理 `common/protocol/` 中共享协议头文件抽取。
+- 暂不实现 F407 固件代码。
+
+## 2026-06-10 - Stage 1 Linux Runtime MCU Protocol
+
+### 本次完成
+
+- 进入 Stage 1：STM32F407ZG Sensor Hub。
+- 新增 MCU 协议文档和 Stage 1 计划。
+- 新增 MCU 协议常量、`McuFrame`、`McuFrameParser` 和 `McuStatus`。
+- 支持解析 heartbeat 帧和 mock sensor 帧。
+- 支持 CRC16/MODBUS 校验，并在 mock 样例中验证错误 CRC 拒绝逻辑。
+- 新增 `McuMockService`，只在 Linux Runtime 侧读取 mock frame 文件，不实现真实 STM32 固件。
+- Runtime 状态输出升级为 `runtime/runtime_status.json`，并包含 MCU 状态。
+- 新增 MCU 帧协议 ADR。
+
+### 修改文件
+
+- `CMakeLists.txt`
+- `README.md`
+- `config/runtime.conf`
+- `data/mcu_mock_frames.txt`
+- `docs/adr/0007-mcu-frame-protocol.md`
+- `docs/dev_log.md`
+- `docs/mcu_protocol.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `include/config/app_config.h`
+- `include/mcu/`
+- `include/runtime/runtime_status.h`
+- `include/services/mcu_mock_service.h`
+- `scripts/verify_runtime.ps1`
+- `src/config/config_loader.cpp`
+- `src/ipc/status_publisher.cpp`
+- `src/main.cpp`
+- `src/mcu/`
+- `src/runtime/runtime_manager.cpp`
+- `src/services/mcu_mock_service.cpp`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify_runtime.ps1
+```
+
+- 已执行构建产物验证：
+
+```powershell
+.\build\Debug\outdoor_core_runtime.exe --config config\runtime.conf --log-level debug
+```
+
+- 验证结果：CMake 构建通过，Runtime 验证脚本通过，`runtime_status.json` 包含 MCU heartbeat 和 mock sensor 状态，错误 CRC 帧被拒绝。
+
+### 后续 TODO
+
+- Stage 1.6 接入真实 IMU 前，先确认具体 IMU 硬件和 F407 固件边界。
+- 后续硬件阶段再实现真实 STM32F407ZG 固件和串口输入。
+
 ## 2026-06-10 - Stage 0 Plan Closure
 
 ### 本次完成

@@ -1,0 +1,11 @@
+# Stage 1 Linux-side MCU mock frames.
+# Format: A5 5A version type seq_le len_le payload crc16_modbus_le
+
+# heartbeat: uptime_ms=1000, status_flags=0x0001
+A5 5A 01 01 01 00 06 00 E8 03 00 00 01 00 1E 6A
+
+# mock sensor: uptime_ms=2000, temp=25.34C, humidity=62.3%, accel=(0.012, -0.008, 1.001)g
+A5 5A 01 10 02 00 0E 00 D0 07 00 00 E6 09 6F 02 0C 00 F8 FF E9 03 C7 3E
+
+# invalid heartbeat CRC, used by verification to prove CRC rejection
+A5 5A 01 01 03 00 06 00 B8 0B 00 00 02 00 00 00

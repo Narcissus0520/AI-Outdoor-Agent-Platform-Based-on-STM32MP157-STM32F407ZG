@@ -4,4 +4,5 @@ out/
 *.obj
 *.o
 *.log
-runtime/
+/runtime/
+/mp157/outdoor-core-service/runtime/
