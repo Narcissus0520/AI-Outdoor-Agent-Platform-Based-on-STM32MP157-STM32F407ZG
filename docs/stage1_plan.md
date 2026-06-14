@@ -2,7 +2,7 @@
 
 Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F407ZG Sensor Hub 协议解析和 Sensor Hub 状态管理。
 
-当前只修改 Linux Runtime 侧代码，不实现真实 STM32F407ZG 固件，不接入真实 IMU。
+当前在不依赖真实 ICM42688 硬件的前提下，同时推进 F407 侧 Mock Sensor Hub 软件和 MP157 Linux Runtime 侧协议解析。当前不实现真实 STM32F407ZG 固件部署，不接入真实 IMU 寄存器驱动。
 
 ## Stage 1.1: 协议文档和协议常量
 
@@ -41,14 +41,22 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 
 ## Stage 1.6: 接入真实 IMU
 
-- [ ] 选择和确认真实 IMU 硬件
+- [x] 确认当前真实 ICM42688 尚未到货，先使用 Mock IMU 继续推进软件链路
+- [x] 在 `common/protocol` 定义 `ImuSample` 和 IMU payload 布局
+- [x] 新增 `MSG_TYPE_SENSOR_IMU`
+- [x] F407 侧新增 `MockImuProvider`
+- [x] F407 侧将 Mock IMU 数据打包为 IMU 协议帧
+- [x] MP157 侧新增 IMU payload parser
+- [x] `runtime_status.json` 增加 `imu` 字段
+- [x] 添加 CRC、帧解析、IMU payload 解析测试
+- [x] 新增 `tools/frame_decoder` 十六进制 MCU 协议帧解析工具
+- [ ] ICM42688 到货后替换 F407 数据源
 - [ ] STM32F407ZG 侧采集真实 IMU
-- [ ] Linux Runtime 侧解析真实 IMU 数据帧
-- [ ] 将真实 IMU 状态加入 Runtime 状态输出
+- [ ] 在真实串口链路上验证 MP157 Runtime 解析真实 IMU 数据帧
 
 ## 当前限制
 
-- 当前 Stage 1 只实现 Linux Runtime 侧协议解析和 mock 数据验证。
-- 暂不实现真实 STM32F407ZG 固件。
-- 暂不接入真实 IMU。
+- 当前 Stage 1 使用 Mock IMU 数据跑通 F407 Sensor Hub 软件模块到 MP157 Runtime 的协议链路。
+- 暂不实现真实 STM32F407ZG 固件部署。
+- 暂不实现真实 ICM42688 寄存器驱动，`Icm42688Driver` 仅保留占位接口并返回 not supported。
 - 暂不引入 UI、HTTP API 或 AI Agent。

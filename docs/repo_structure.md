@@ -31,7 +31,7 @@ mp157/outdoor-core-service/
 f407/sensor-hub/
 ```
 
-当前只保留目录结构，暂不实现真实 STM32F407ZG 固件代码。
+当前提供可在本机编译验证的 Mock Sensor Hub 软件模块，包括 Mock IMU Provider、MCU 协议帧打包和 ICM42688 占位接口。该目录暂不实现真实 STM32F407ZG 固件部署，也不实现真实 ICM42688 寄存器驱动。
 
 ## `common/`
 
@@ -43,11 +43,19 @@ f407/sensor-hub/
 common/protocol/
 ```
 
-后续可放置协议说明、公共头文件、CRC 实现或可被两侧共享的轻量代码。当前阶段不强行抽离 Linux Runtime 内部实现。
+当前放置 MP157 与 F407 共享的协议常量、CRC16/MODBUS 和 `ImuSample` / IMU payload 定义。
 
 ## `tools/`
 
-`tools/` 用于 PC 调试工具，例如后续的协议帧生成器、串口调试工具或数据回放辅助工具。
+`tools/` 用于 PC 调试工具，例如协议帧生成器、串口调试工具或数据回放辅助工具。
+
+当前工具：
+
+```text
+tools/frame_decoder/
+```
+
+`frame_decoder` 用于解析十六进制 MCU 协议帧，并在 `sensor_imu` 帧中展开 IMU payload 字段。
 
 ## `scripts/`
 

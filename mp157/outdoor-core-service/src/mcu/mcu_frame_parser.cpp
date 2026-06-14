@@ -1,5 +1,7 @@
 #include "mcu/mcu_frame_parser.h"
 
+#include "mcu/imu_payload_parser.h"
+
 #include <sstream>
 
 namespace outdoor::mcu {
@@ -82,6 +84,8 @@ bool McuFrameParser::applyFrame(const McuFrame& frame, McuStatus& status, std::s
         return applyHeartbeat(frame, status, error);
     case McuFrameType::MockSensor:
         return applyMockSensor(frame, status, error);
+    case McuFrameType::SensorImu:
+        return applySensorImu(frame, status, error);
     }
 
     error = "unsupported MCU frame type";
@@ -120,6 +124,23 @@ bool McuFrameParser::applyMockSensor(const McuFrame& frame, McuStatus& status, s
     status.accelYG = static_cast<double>(readI16Le(frame.payload, 10)) / 1000.0;
     status.accelZG = static_cast<double>(readI16Le(frame.payload, 12)) / 1000.0;
     status.lastSequence = frame.sequence;
+    status.lastFrameType = mcuFrameTypeToString(frame.type);
+    status.lastError.clear();
+    return true;
+}
+
+bool McuFrameParser::applySensorImu(const McuFrame& frame, McuStatus& status, std::string& error) const
+{
+    outdoor::protocol::ImuSample sample;
+    ImuPayloadParser parser;
+    if (!parser.parse(frame.payload, sample, error)) {
+        return false;
+    }
+
+    status.imuSeen = true;
+    status.lastSequence = frame.sequence;
+    status.uptimeMs = sample.uptimeMs;
+    status.imuSample = sample;
     status.lastFrameType = mcuFrameTypeToString(frame.type);
     status.lastError.clear();
     return true;

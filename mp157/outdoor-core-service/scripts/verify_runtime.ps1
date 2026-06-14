@@ -34,12 +34,14 @@ try {
 
     g++ -std=c++17 -Wall -Wextra -Wpedantic `
         -I"include" `
+        -I"..\..\common" `
         "src\main.cpp" `
         "src\config\config_loader.cpp" `
         "src\gnss\nmea_parser.cpp" `
         "src\input\file_replay_input.cpp" `
         "src\ipc\status_publisher.cpp" `
         "src\log\logger.cpp" `
+        "src\mcu\imu_payload_parser.cpp" `
         "src\mcu\mcu_frame_parser.cpp" `
         "src\mcu\mcu_protocol.cpp" `
         "src\mcu\mcu_status.cpp" `
@@ -83,8 +85,24 @@ try {
         throw "runtime status output did not report MCU mock sensor"
     }
 
+    if ($statusText -notmatch '"imu_seen": true') {
+        throw "runtime status output did not report MCU IMU frame"
+    }
+
     if ($statusText -notmatch '"temperature_celsius": 25\.340') {
         throw "runtime status output did not report MCU mock temperature"
+    }
+
+    if ($statusText -notmatch '"imu": \{') {
+        throw "runtime status output did not contain IMU status object"
+    }
+
+    if ($statusText -notmatch '"gyro_y_dps": -2\.194') {
+        throw "runtime status output did not report parsed IMU gyro"
+    }
+
+    if ($statusText -notmatch '"accel_z_g": 1\.001') {
+        throw "runtime status output did not report parsed IMU acceleration"
     }
 
     if (($defaultOutput -join "`n") -notmatch "MCU frame CRC mismatch") {

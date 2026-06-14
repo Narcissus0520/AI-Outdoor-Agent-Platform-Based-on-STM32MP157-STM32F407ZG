@@ -9,13 +9,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(outdoor_core_runtime
-    src/main.cpp
+set(OUTDOOR_CORE_SOURCES
     src/config/config_loader.cpp
     src/gnss/nmea_parser.cpp
     src/input/file_replay_input.cpp
     src/ipc/status_publisher.cpp
     src/log/logger.cpp
+    src/mcu/imu_payload_parser.cpp
     src/mcu/mcu_frame_parser.cpp
     src/mcu/mcu_protocol.cpp
     src/mcu/mcu_status.cpp
@@ -25,12 +25,39 @@ add_executable(outdoor_core_runtime
     src/services/mcu_mock_service.cpp
 )
 
-target_include_directories(outdoor_core_runtime
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+add_library(outdoor_core STATIC
+    ${OUTDOOR_CORE_SOURCES}
 )
 
-target_compile_options(outdoor_core_runtime
+target_include_directories(outdoor_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../common
+)
+
+target_compile_options(outdoor_core
     PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
 )
+
+add_executable(outdoor_core_runtime
+    src/main.cpp
+)
+
+target_link_libraries(outdoor_core_runtime
+    PRIVATE
+        outdoor_core
+)
+
+enable_testing()
+
+add_executable(mcu_protocol_tests
+    tests/mcu_protocol_tests.cpp
+)
+
+target_link_libraries(mcu_protocol_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME mcu_protocol_tests COMMAND mcu_protocol_tests)

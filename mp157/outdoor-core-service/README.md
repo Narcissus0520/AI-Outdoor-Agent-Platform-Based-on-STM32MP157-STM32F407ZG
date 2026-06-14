@@ -14,7 +14,8 @@
 - MCU mock frame 解析
 - `McuFrame` / `McuFrameParser` / `McuStatus`
 - CRC16/MODBUS 校验
-- Heartbeat 和 mock sensor 帧解析
+- Heartbeat、mock sensor 和 Mock IMU 帧解析
+- `runtime_status.json` 输出独立 `imu` 字段
 
 ## 目录结构
 
@@ -71,6 +72,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - NMEA checksum 错误拒绝
 - MCU heartbeat mock 帧
 - MCU mock sensor 帧
+- MCU Mock IMU 帧和 `imu` 状态字段
 - MCU CRC16 错误拒绝
 - `runtime_status.json` 状态输出
 

@@ -1,6 +1,6 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 Linux Runtime 侧 MCU 协议原型。当前协议用于解析 STM32F407ZG Sensor Hub 的 heartbeat 和 mock sensor 数据；本阶段不实现真实 STM32 固件。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前协议用于在无真实 ICM42688 硬件时，使用 Mock IMU 数据跑通 F407 Sensor Hub 软件模块到 MP157 Linux Runtime 的解析链路；本阶段不实现真实 ICM42688 寄存器驱动。
 
 ## 帧格式
 
@@ -31,6 +31,7 @@ version, frame_type, sequence, payload_length, payload
 ```text
 0x01 heartbeat
 0x10 mock_sensor
+0x11 sensor_imu
 ```
 
 ## Heartbeat Payload
@@ -59,6 +60,28 @@ offset  size  field
 - `humidity_permille / 10.0`
 - `accel_*_mg / 1000.0`
 
+## IMU Payload
+
+IMU payload 由 `common/protocol/imu_payload.h` 中的 `ImuSample` 定义。协议层使用定点整数，避免在 MCU 协议中直接传输浮点。
+
+```text
+offset  size  field
+0       4     uptime_ms
+4       2     accel_x_mg
+6       2     accel_y_mg
+8       2     accel_z_mg
+10      4     gyro_x_mdps
+14      4     gyro_y_mdps
+18      4     gyro_z_mdps
+22      2     temperature_centi_c
+```
+
+换算关系：
+
+- `accel_*_mg / 1000.0`
+- `gyro_*_mdps / 1000.0`
+- `temperature_centi_c / 100.0`
+
 ## Mock Frames
 
 Linux Runtime 侧 mock 帧样例位于：
@@ -71,4 +94,5 @@ mp157/outdoor-core-service/data/mcu_mock_frames.txt
 
 - 合法 heartbeat 帧
 - 合法 mock sensor 帧
+- 合法 Mock IMU 帧
 - 故意错误 CRC 帧，用于验证 CRC 拒绝逻辑

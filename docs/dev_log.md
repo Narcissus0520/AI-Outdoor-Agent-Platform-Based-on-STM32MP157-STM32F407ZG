@@ -1,5 +1,65 @@
 # Dev Log
 
+## 2026-06-14 - Stage 1 Mock IMU Chain
+
+### 本次完成
+
+- 在 `common/protocol` 中新增 MCU 公共协议常量、CRC16/MODBUS、`MSG_TYPE_SENSOR_IMU` 和 `ImuSample`。
+- 在 F407 侧新增 `MockImuProvider`、IMU 协议帧打包和 `Icm42688Driver` 占位接口。
+- 在 MP157 侧新增 IMU payload parser，并将 Mock IMU 数据输出到 `runtime_status.json` 的 `imu` 字段。
+- 新增 CRC、帧解析、IMU payload 解析和 F407 mock 打包测试。
+- 新增 `tools/frame_decoder`，用于解析十六进制 MCU 协议帧。
+
+### 修改文件
+
+- `common/protocol/`
+- `f407/sensor-hub/`
+- `mp157/outdoor-core-service/`
+- `tools/frame_decoder/`
+- `docs/stage1_plan.md`
+- `docs/changelog.md`
+- `docs/mcu_protocol.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build
+cmake --build mp157/outdoor-core-service/build
+ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure
+```
+
+- 已执行：
+
+```bash
+cmake -S f407/sensor-hub -B f407/sensor-hub/build
+cmake --build f407/sensor-hub/build
+ctest --test-dir f407/sensor-hub/build -C Debug --output-on-failure
+```
+
+- 已执行：
+
+```bash
+cmake -S tools/frame_decoder -B tools/frame_decoder/build
+cmake --build tools/frame_decoder/build
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1
+```
+
+- 验证结果：MP157 Runtime 构建通过，F407 mock 模块构建通过，frame_decoder 构建通过，CTest 全部通过，Runtime 验证脚本通过。
+
+### 后续 TODO
+
+- ICM42688 到货后，将 F407 侧 Mock IMU 数据源替换为真实驱动读取。
+- 后续硬件阶段补充 STM32F407ZG 真实固件部署和串口链路验证。
+
 ## 2026-06-11 - Monorepo Structure
 
 ### 本次完成

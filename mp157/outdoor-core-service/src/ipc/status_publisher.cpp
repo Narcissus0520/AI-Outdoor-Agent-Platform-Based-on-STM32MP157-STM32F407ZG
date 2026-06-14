@@ -63,6 +63,7 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
             }
 
             const auto& mcu = status.mcuStatus;
+            const auto& imu = mcu.imuSample;
             stream << std::fixed << std::setprecision(3)
                    << "{\n"
                    << "  \"runtime\": {\n"
@@ -74,6 +75,7 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
                    << "  \"mcu\": {\n"
                    << "    \"heartbeat_seen\": " << (mcu.heartbeatSeen ? "true" : "false") << ",\n"
                    << "    \"mock_sensor_seen\": " << (mcu.mockSensorSeen ? "true" : "false") << ",\n"
+                   << "    \"imu_seen\": " << (mcu.imuSeen ? "true" : "false") << ",\n"
                    << "    \"last_sequence\": " << mcu.lastSequence << ",\n"
                    << "    \"uptime_ms\": " << mcu.uptimeMs << ",\n"
                    << "    \"status_flags\": " << mcu.statusFlags << ",\n"
@@ -84,6 +86,18 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
                    << "    \"accel_z_g\": " << mcu.accelZG << ",\n"
                    << "    \"last_frame_type\": \"" << jsonEscape(mcu.lastFrameType) << "\",\n"
                    << "    \"last_error\": \"" << jsonEscape(mcu.lastError) << "\"\n"
+                   << "  },\n"
+                   << "  \"imu\": {\n"
+                   << "    \"seen\": " << (mcu.imuSeen ? "true" : "false") << ",\n"
+                   << "    \"uptime_ms\": " << imu.uptimeMs << ",\n"
+                   << "    \"accel_x_g\": " << outdoor::protocol::accelMgToG(imu.accelXMg) << ",\n"
+                   << "    \"accel_y_g\": " << outdoor::protocol::accelMgToG(imu.accelYMg) << ",\n"
+                   << "    \"accel_z_g\": " << outdoor::protocol::accelMgToG(imu.accelZMg) << ",\n"
+                   << "    \"gyro_x_dps\": " << outdoor::protocol::gyroMdpsToDps(imu.gyroXMdps) << ",\n"
+                   << "    \"gyro_y_dps\": " << outdoor::protocol::gyroMdpsToDps(imu.gyroYMdps) << ",\n"
+                   << "    \"gyro_z_dps\": " << outdoor::protocol::gyroMdpsToDps(imu.gyroZMdps) << ",\n"
+                   << "    \"temperature_celsius\": "
+                   << outdoor::protocol::centiCelsiusToCelsius(imu.temperatureCentiC) << "\n"
                    << "  }\n"
                    << "}\n";
         }
