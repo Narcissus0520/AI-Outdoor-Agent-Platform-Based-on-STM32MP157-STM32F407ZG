@@ -2,7 +2,7 @@
 
 Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F407ZG Sensor Hub 协议解析和 Sensor Hub 状态管理。
 
-当前在不依赖真实 ICM42688 硬件的前提下，同时推进 F407 侧 Mock Sensor Hub 软件和 MP157 Linux Runtime 侧协议解析。当前不实现真实 STM32F407ZG 固件部署，不接入真实 IMU 寄存器驱动。
+当前在不依赖真实 ICM42688 硬件的前提下，同时推进 F407 侧 Mock Sensor Hub 软件、STM32Cube 固件基线和 MP157 Linux Runtime 侧协议解析。当前不接入真实 IMU 寄存器驱动。
 
 ## Stage 1.1: 协议文档和协议常量
 
@@ -14,7 +14,7 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 
 - [x] 定义 heartbeat 帧格式
 - [x] 提供 Linux Runtime 侧 mock heartbeat 帧样例
-- [ ] 实现真实 STM32F407ZG 固件发送 heartbeat
+- [x] 实现真实 STM32F407ZG 固件发送 heartbeat
 
 ## Stage 1.3: Linux Runtime 解析 heartbeat
 
@@ -54,9 +54,30 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 - [ ] STM32F407ZG 侧采集真实 IMU
 - [ ] 在真实串口链路上验证 MP157 Runtime 解析真实 IMU 数据帧
 
+## Stage 1.7: F407 Board Bring-up 骨架
+
+- [x] 新增 `f407/sensor-hub/firmware/` 固件工作区
+- [x] 新增 `sensor_hub_app_init()` 和 `sensor_hub_app_poll()`
+- [x] 新增 `board_uart_send_bytes()` BSP 占位接口
+- [x] 新增 `board_get_tick_ms()` BSP 占位接口
+- [x] 新增 C 版 CRC16/MODBUS 和 MCU frame builder
+- [x] 新增 C 版 Mock IMU Provider
+- [x] `sensor_hub_app_poll()` 每 1000 ms 发送 heartbeat，每 100 ms 发送 Mock IMU frame
+- [x] 导入 STM32CubeMX 生成的 STM32F407ZG HAL 基础工程
+- [x] 将 Cube 生成代码隔离到 `firmware/stm32cube/`
+- [x] 补充 GNU ARM 启动文件、链接脚本和 CMake toolchain
+- [x] 使用 `arm-none-eabi-gcc` 生成最小 ELF/HEX/BIN/map
+- [x] 加入 PF9 LED 心跳基线并通过 ARM 编译
+- [x] 在 STM32Cube HAL 工程中将 `board_uart_send_bytes()` 对接到 `HAL_UART_Transmit()`
+- [x] 在 STM32Cube HAL 工程中将 `board_get_tick_ms()` 对接到 `HAL_GetTick()`
+- [x] 将 `sensor_hub_app_init()` 和 `sensor_hub_app_poll()` 接入 Cube 主循环
+- [x] 配置 USART1 PA9/PA10、115200 8N1
+- [x] 上板验证 LED 基线、heartbeat 和 Mock IMU 串口帧
+
 ## 当前限制
 
 - 当前 Stage 1 使用 Mock IMU 数据跑通 F407 Sensor Hub 软件模块到 MP157 Runtime 的协议链路。
-- 暂不实现真实 STM32F407ZG 固件部署。
+- STM32F407ZG CubeMX 基础工程、仓库自主管理的 GNU ARM 构建和 UART Bootloader 上板验证已经完成。
 - 暂不实现真实 ICM42688 寄存器驱动，`Icm42688Driver` 仅保留占位接口并返回 not supported。
+- 当前 F407 固件已在板上通过 USART1 输出 heartbeat 和 Mock IMU 帧；MP157 Runtime 仍使用 mock 文件输入，尚未实现真实 Linux 串口输入源。
 - 暂不引入 UI、HTTP API 或 AI Agent。

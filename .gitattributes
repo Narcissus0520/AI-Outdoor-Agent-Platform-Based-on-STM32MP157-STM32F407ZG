@@ -1,1 +1,2 @@
 * text=auto eol=lf
+f407/sensor-hub/firmware/stm32cube/** -whitespace

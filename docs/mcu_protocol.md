@@ -1,6 +1,8 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 MCU 协议原型。当前协议用于在无真实 ICM42688 硬件时，使用 Mock IMU 数据跑通 F407 Sensor Hub 软件模块到 MP157 Linux Runtime 的解析链路；本阶段不实现真实 ICM42688 寄存器驱动。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 USART1 PA9、115200 8N1 发送 heartbeat 和 Mock IMU 二进制帧；MP157 Runtime 的协议解析已存在，但真实 Linux 串口输入源和板间联调尚未完成。本阶段不实现真实 ICM42688 寄存器驱动。
+
+串口上传输的是连续二进制帧，不附加换行符，也不转换为十六进制文本。
 
 ## 帧格式
 

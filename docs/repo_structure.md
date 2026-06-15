@@ -31,7 +31,31 @@ mp157/outdoor-core-service/
 f407/sensor-hub/
 ```
 
-当前提供可在本机编译验证的 Mock Sensor Hub 软件模块，包括 Mock IMU Provider、MCU 协议帧打包和 ICM42688 占位接口。该目录暂不实现真实 STM32F407ZG 固件部署，也不实现真实 ICM42688 寄存器驱动。
+当前提供两类代码：
+
+- PC mock C++ 工程：可在本机编译验证 Mock IMU Provider、MCU 协议帧打包和 ICM42688 占位接口。
+- `firmware/`：真实 F407 固件工作区，包含项目自有的 app、BSP、协议和传感器代码。
+- `firmware/stm32cube/`：STM32CubeMX 6.17.0 基于 STM32Cube FW_F4 V1.28.3 生成的 `STM32F407ZGTx` HAL 基础工程。
+
+```text
+f407/sensor-hub/
+├── CMakeLists.txt              # PC mock C++ 构建
+├── include/                    # PC mock C++ 头文件
+├── src/                        # PC mock C++ 实现
+├── tests/                      # PC mock CTest
+└── firmware/
+    ├── app/                    # 项目自有固件应用层
+    ├── bsp/                    # 板级适配接口
+    ├── cmake/                  # GNU Arm Embedded Toolchain 配置
+    ├── linker/                 # STM32F407ZG 内存布局
+    ├── platform/               # 最小 newlib 系统调用
+    ├── protocol/               # C 版协议实现
+    ├── sensors/                # 固件传感器数据源
+    ├── startup/                # Cortex-M4 启动与中断向量表
+    └── stm32cube/              # CubeMX 生成代码、HAL/CMSIS 和 .ioc
+```
+
+`firmware/stm32cube/` 当前配置系统时钟、PF9/PF10 LED GPIO 和 USART1 PA9/PA10。目录中保留 MDK-ARM 工程作为 CubeMX 生成基线；仓库使用 GNU Arm Embedded Toolchain 和 CMake 生成 ELF/HEX/BIN/map，不依赖 Keil 工程完成编译。
 
 ## `common/`
 
@@ -65,6 +89,9 @@ tools/frame_decoder/
 
 ```text
 scripts/build_mp157.sh
+scripts/build_f407.ps1
+scripts/flash_f407_uart.ps1
+scripts/verify_f407_uart.ps1
 ```
 
-该脚本进入 `mp157/outdoor-core-service/` 并执行 CMake 配置和编译。
+`build_mp157.sh` 构建 MP157 Runtime；`build_f407.ps1` 使用 GNU Arm Embedded Toolchain 和 Ninja 构建 F407 固件；`flash_f407_uart.ps1` 通过 STM32 ROM UART Bootloader 烧录并回读校验 F407 固件；`verify_f407_uart.ps1` 抓取并统计 F407 USART1 heartbeat 和 Mock IMU 二进制帧。

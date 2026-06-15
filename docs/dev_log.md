@@ -1,5 +1,251 @@
 # Dev Log
 
+## 2026-06-16 - F407 UART Bootloader Flash and Frame Validation
+
+### 本次完成
+
+- 新增 `scripts/flash_f407_uart.ps1`，支持通过 CH340 `COM3` 进入 STM32 ROM UART Bootloader。
+- 处理 F407 读保护解除流程：`Readout Unprotect`、等待完成 ACK、重新进入 Bootloader。
+- 通过 UART Bootloader 烧录 `sensor_hub.bin` 到 `0x08000000`。
+- 对烧录内容进行逐字节回读校验。
+- 新增 `scripts/verify_f407_uart.ps1`，抓取并解析 F407 USART1 二进制 MCU 帧。
+
+### 修改文件
+
+- `scripts/flash_f407_uart.ps1`
+- `scripts/verify_f407_uart.ps1`
+- `README.md`
+- `f407/sensor-hub/README.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `docs/project_design.md`
+- `docs/dev_log.md`
+
+### 验证结果
+
+- 已执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3 -ReadoutUnprotectFirst
+```
+
+- 烧录和逐字节回读校验成功。
+- 已执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5
+```
+
+- 5 秒读取 1781 字节，共解析 55 帧。
+- heartbeat：5 帧。
+- Mock IMU：50 帧。
+- CRC 错误：0 帧。
+
+### 遇到的问题与解决方案
+
+- 问题：本机最初无法直接从 PATH 调用 STM32CubeProgrammer CLI，且未发现 ST-LINK。
+  解决：用户确认 CLI 路径为 `D:\Program Files (x86)\ST\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe`；本次优先走 F407 ROM UART Bootloader，不依赖 ST-LINK。
+- 问题：STM32_Programmer_CLI 通过 UART 连接时会改变 DTR/RTS，导致一键下载电路进入 Bootloader 的时序被打断。
+  解决：新增 `scripts/flash_f407_uart.ps1`，在同一个串口会话内控制 DTR/RTS 并直接实现 Bootloader 写入、回读和校验流程。
+- 问题：初始 Bootloader 只接受 Get、GetVersion、GetID、ReadoutUnprotect，Read/Write/Erase 返回 NACK，表现为读保护状态。
+  解决：执行 `Readout Unprotect (0x92)`，等待约 15 秒完成 ACK；该操作会擦除用户 Flash，随后重新进入 Bootloader 并跳过额外 erase，直接写入固件。
+- 问题：烧录后应用态串口一度没有输出。
+  解决：确认一键下载电路的应用复位时序，验证脚本使用 `DTR=true`、`RTS=false -> true` 后读取 115200 8N1 二进制帧。
+- 问题：PowerShell 验证脚本早期误报 CRC 错误。
+  解决：在 CRC 计算和接收 CRC 拼接处显式将 byte 转为 `[int]` 后再移位/异或，复测 5 秒 55 帧、CRC 错误 0 帧。
+
+### 后续 TODO
+
+- 在 MP157 Runtime 新增 `/dev/tty*` 串口二进制输入源。
+- 将真实串口字节流送入 `McuFrameParser`，替换或并存当前 mock 文件输入。
+
+## 2026-06-15 - F407 Mock Data UART Reporting
+
+### 本次完成
+
+- 配置 USART1：PA9 TX、PA10 RX、115200 8N1、无流控。
+- 补充 STM32F4 HAL UART 驱动并加入固件构建。
+- 将 `board_get_tick_ms()` 对接到 `HAL_GetTick()`。
+- 将 `board_uart_send_bytes()` 对接到阻塞式 `HAL_UART_Transmit()`。
+- 将 Sensor Hub app、C 协议构建和 Mock IMU 数据源加入 ARM 固件。
+- 在 Cube 主循环调用 `sensor_hub_app_init()` 和 `sensor_hub_app_poll()`。
+- LED 心跳改为非阻塞轮询，避免影响 100 ms IMU 上报周期。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/stm32cube/atk_f407_sensorhub.ioc`
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/usart.h`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/usart.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/main.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/stm32f4xx_hal_msp.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/stm32f4xx_hal_conf.h`
+- `f407/sensor-hub/firmware/stm32cube/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h`
+- `f407/sensor-hub/firmware/stm32cube/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c`
+- `f407/sensor-hub/firmware/bsp/stm32/`
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- 相关 README、Stage 1、设计和协议文档
+
+### 验证结果
+
+- F407 ARM 固件构建通过。
+- Debug 固件使用 6544 B Flash、1680 B RAM。
+- 已生成新的 ELF、HEX、BIN 和 map。
+- ELF 中确认 `sensor_hub_app_poll()`、`board_uart_send_bytes()`、`HAL_UART_Transmit()` 和两个帧构建函数均已链接。
+- F407 PC mock CTest 1/1 通过。
+- 尚未执行真实串口抓包和 MP157 板间联调。
+
+### 后续 TODO
+
+- 烧录新固件并用 USB-UART 抓取二进制帧。
+- 验证 heartbeat 1 Hz、Mock IMU 10 Hz 和 CRC。
+- 在 MP157 Runtime 新增真实串口输入源，将二进制字节流送入 `McuFrameParser`。
+
+## 2026-06-15 - F407 GNU ARM/CMake Firmware Build
+
+### 本次完成
+
+- 安装并验证 GNU Arm Embedded Toolchain 14.2.Rel1。
+- 新增 F407 固件独立 CMake 工程和 Windows 构建脚本。
+- 新增 STM32F407ZG Flash、SRAM、CCMRAM 链接布局。
+- 新增 GCC 启动、异常/中断向量表和最小 newlib 系统调用。
+- 直接编译 Cube Core、HAL 和 CMSIS 依赖。
+- 自动生成 `sensor_hub.elf`、`.hex`、`.bin`、`.map` 和 size 输出。
+- 在 Cube `main.c` 的 `USER CODE` 区域加入 PF9 LED0 每 500 ms 翻转的基线逻辑。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- `f407/sensor-hub/firmware/cmake/arm-none-eabi-gcc.cmake`
+- `f407/sensor-hub/firmware/linker/STM32F407ZGTx_FLASH.ld`
+- `f407/sensor-hub/firmware/startup/startup_stm32f407xx.c`
+- `f407/sensor-hub/firmware/platform/syscalls.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/main.c`
+- `scripts/build_f407.ps1`
+- `README.md`
+- `f407/sensor-hub/README.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_plan.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/adr/0008-f407-cube-source-and-cmake-build-boundary.md`
+- `docs/changelog.md`
+
+### 验证结果
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_f407.ps1 -BuildType Debug
+```
+
+- 构建成功，Debug 基线使用 4572 B Flash、1584 B RAM。
+- ELF 入口为 `0x0800024d`，向量表位于 `0x08000000`，栈顶为 `0x20020000`。
+- 已生成 ELF、HEX、BIN 和 map 文件。
+- F407 PC mock CMake 构建通过，CTest 1/1 通过。
+- 项目自有纯 C 固件骨架通过本机 `gcc -fsyntax-only`。
+- 当前环境未发现 STM32CubeProgrammer 或 ST-LINK CLI，因此未执行下载和板上 LED 验证。
+
+### 后续 TODO
+
+- 安装或配置 STM32CubeProgrammer/ST-LINK CLI。
+- 下载固件并验证 PF9 LED0 每 500 ms 翻转。
+- 验证后接入 Sensor Hub app 和 HAL tick。
+
+## 2026-06-15 - STM32Cube F407 Baseline Import
+
+### 本次完成
+
+- 浏览并盘点 STM32CubeMX 生成的 STM32F407ZG 基础工程。
+- 将 Cube 生成内容从 `f407/sensor-hub/stm32cube/` 移动到 `f407/sensor-hub/firmware/stm32cube/`。
+- 明确 PC mock、项目自有固件代码和 Cube 生成代码的目录边界。
+- 将自主固件编译拆分为 GNU ARM/CMake、最小上板、应用接入和 UART 联调步骤。
+- 新增 ADR-0008，记录保留 Cube 源码基线并由仓库维护独立 CMake 构建的决策。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/stm32cube/`
+- `f407/sensor-hub/README.md`
+- `.gitignore`
+- `README.md`
+- `docs/repo_structure.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/adr/0008-f407-cube-source-and-cmake-build-boundary.md`
+- `docs/changelog.md`
+
+### 验证结果
+
+- 已检查 Cube `.ioc`、`main.c`、GPIO 初始化和 MDK-ARM 工程源文件清单。
+- 已确认当前 Cube 工程仅配置系统时钟和 PF9/PF10 LED GPIO，未配置 UART。
+- 已确认当前环境可用 CMake 和 Ninja，但未安装 `arm-none-eabi-gcc`、`arm-none-eabi-objcopy`。
+- 已执行 F407 PC mock CMake 构建和 CTest。
+- 未执行真实 F407 固件编译：当前缺少 GNU ARM 工具链、GNU 启动文件、链接脚本和固件 CMake 入口。
+
+### 后续 TODO
+
+- 完成 Step 2：建立最小 GNU ARM/CMake 固件构建。
+- 生成 ELF、HEX、BIN、map 和 size 输出。
+- 再进行 LED 上板基线和 Sensor Hub 应用接入。
+
+## 2026-06-14 - F407 Firmware Bring-up Skeleton
+
+### 本次完成
+
+- 新增 `f407/sensor-hub/firmware/` 纯 C 固件骨架。
+- 新增 `sensor_hub_app_init()` 和 `sensor_hub_app_poll()`。
+- 新增 `board_uart_send_bytes()` 和 `board_get_tick_ms()` BSP 占位接口。
+- 新增 C 版 CRC16/MODBUS、MCU frame builder 和 Mock IMU Provider。
+- `sensor_hub_app_poll()` 当前每 1000 ms 发送 heartbeat，每 100 ms 发送 Mock IMU frame。
+- 新增 `docs/stage1_bringup_plan.md`，记录后续对接 STM32 HAL UART 的计划。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/changelog.md`
+- `README.md`
+
+### 验证结果
+
+- 已执行：
+
+```bash
+cmake -S f407/sensor-hub -B f407/sensor-hub/build
+cmake --build f407/sensor-hub/build
+ctest --test-dir f407/sensor-hub/build -C Debug --output-on-failure
+```
+
+- 已执行：
+
+```bash
+gcc -std=c11 -Wall -Wextra -Wpedantic -If407/sensor-hub/firmware -fsyntax-only f407/sensor-hub/firmware/app/sensor_hub_app.c f407/sensor-hub/firmware/bsp/board_uart.c f407/sensor-hub/firmware/bsp/board_tick.c f407/sensor-hub/firmware/protocol/crc16_modbus_c.c f407/sensor-hub/firmware/protocol/mcu_frame_builder_c.c f407/sensor-hub/firmware/sensors/mock_imu_provider_c.c
+```
+
+- 已执行：
+
+```bash
+cmake --build mp157/outdoor-core-service/build
+ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure
+```
+
+- 已执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1
+```
+
+- 验证结果：F407 PC mock 构建和测试通过，新增 firmware C 文件语法检查通过，MP157 Runtime 构建和测试通过，Runtime 验证脚本通过。
+
+### 后续 TODO
+
+- 在 STM32Cube HAL 工程中将 `board_get_tick_ms()` 对接到 `HAL_GetTick()`。
+- 在 STM32Cube HAL 工程中将 `board_uart_send_bytes()` 对接到 `HAL_UART_Transmit()`。
+- 使用真实串口链路验证 heartbeat 和 Mock IMU frame。
+
 ## 2026-06-14 - Stage 1 Mock IMU Chain
 
 ### 本次完成

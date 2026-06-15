@@ -6,3 +6,5 @@ out/
 *.log
 /runtime/
 /mp157/outdoor-core-service/runtime/
+*.uvguix.*
+/f407/sensor-hub/firmware/stm32cube/MDK-ARM/atk_f407_sensorhub/
