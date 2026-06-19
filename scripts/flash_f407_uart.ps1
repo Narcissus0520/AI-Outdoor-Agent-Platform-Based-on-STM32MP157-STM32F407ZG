@@ -153,16 +153,24 @@ try {
 
     if ($ReadoutUnprotectFirst) {
         Write-Host "Skipping explicit erase because Readout Unprotect already erased user Flash."
-    } elseif ($supportedCommands -contains 0x44) {
-        Send-Command 0x44 "Extended Erase command"
-        Write-Bytes ([byte[]]@(0xFF, 0xFF, 0x00))
-        Expect-Ack "Global erase"
-    } elseif ($supportedCommands -contains 0x43) {
-        Send-Command 0x43 "Erase command"
-        Write-Bytes ([byte[]]@(0xFF, 0x00))
-        Expect-Ack "Global erase"
     } else {
-        throw "Bootloader does not advertise an erase command"
+        $oldTimeout = $port.ReadTimeout
+        $port.ReadTimeout = 30000
+        try {
+            if ($supportedCommands -contains 0x44) {
+                Send-Command 0x44 "Extended Erase command"
+                Write-Bytes ([byte[]]@(0xFF, 0xFF, 0x00))
+                Expect-Ack "Global erase"
+            } elseif ($supportedCommands -contains 0x43) {
+                Send-Command 0x43 "Erase command"
+                Write-Bytes ([byte[]]@(0xFF, 0x00))
+                Expect-Ack "Global erase"
+            } else {
+                throw "Bootloader does not advertise an erase command"
+            }
+        } finally {
+            $port.ReadTimeout = $oldTimeout
+        }
     }
 
     for ($offset = 0; $offset -lt $firmware.Length; $offset += $ChunkSize) {

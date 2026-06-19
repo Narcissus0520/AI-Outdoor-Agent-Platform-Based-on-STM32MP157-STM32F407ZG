@@ -28,6 +28,7 @@ set(CPU_FLAGS
 set(CUBE_CORE_SOURCES
     "${CUBE_ROOT}/Core/Src/main.c"
     "${CUBE_ROOT}/Core/Src/gpio.c"
+    "${CUBE_ROOT}/Core/Src/i2c.c"
     "${CUBE_ROOT}/Core/Src/usart.c"
     "${CUBE_ROOT}/Core/Src/stm32f4xx_it.c"
     "${CUBE_ROOT}/Core/Src/stm32f4xx_hal_msp.c"
@@ -44,6 +45,8 @@ set(HAL_SOURCES
     "${HAL_ROOT}/Src/stm32f4xx_hal_flash_ex.c"
     "${HAL_ROOT}/Src/stm32f4xx_hal_flash_ramfunc.c"
     "${HAL_ROOT}/Src/stm32f4xx_hal_gpio.c"
+    "${HAL_ROOT}/Src/stm32f4xx_hal_i2c.c"
+    "${HAL_ROOT}/Src/stm32f4xx_hal_i2c_ex.c"
     "${HAL_ROOT}/Src/stm32f4xx_hal_pwr.c"
     "${HAL_ROOT}/Src/stm32f4xx_hal_pwr_ex.c"
     "${HAL_ROOT}/Src/stm32f4xx_hal_rcc.c"
@@ -55,12 +58,17 @@ add_executable(sensor_hub
     startup/startup_stm32f407xx.c
     platform/syscalls.c
     app/sensor_hub_app.c
+    bsp/board_i2c.c
+    bsp/board_icm42688_gpio.c
     bsp/board_tick.c
     bsp/board_uart.c
+    bsp/stm32/board_i2c_stm32.c
+    bsp/stm32/board_icm42688_gpio_stm32.c
     bsp/stm32/board_tick_stm32.c
     bsp/stm32/board_uart_stm32.c
     protocol/crc16_modbus_c.c
     protocol/mcu_frame_builder_c.c
+    sensors/icm42688_provider_c.c
     sensors/mock_imu_provider_c.c
     ${CUBE_CORE_SOURCES}
     ${HAL_SOURCES}

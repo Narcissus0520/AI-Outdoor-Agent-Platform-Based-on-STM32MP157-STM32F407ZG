@@ -3,6 +3,7 @@
 #include "bsp/board_tick.h"
 #include "bsp/board_uart.h"
 #include "protocol/mcu_frame_builder_c.h"
+#include "sensors/icm42688_provider_c.h"
 #include "sensors/mock_imu_provider_c.h"
 
 #include <stddef.h>
@@ -12,12 +13,17 @@ enum {
     SENSOR_HUB_HEARTBEAT_PERIOD_MS = 1000U,
     SENSOR_HUB_IMU_PERIOD_MS = 100U,
     SENSOR_HUB_TX_BUFFER_SIZE = MCU_FRAME_MAX_SIZE,
+    SENSOR_HUB_STATUS_ICM42688_READY = 0x0001U,
+    SENSOR_HUB_STATUS_IMU_FALLBACK = 0x0002U,
+    SENSOR_HUB_STATUS_IMU_ERROR = 0x0004U,
 };
 
 static uint32_t g_last_heartbeat_ms;
 static uint32_t g_last_imu_ms;
 static uint16_t g_sequence;
 static mock_imu_provider_t g_mock_imu;
+static icm42688_provider_t g_icm42688;
+static uint16_t g_status_flags;
 
 static int time_elapsed(uint32_t now_ms, uint32_t last_ms, uint32_t period_ms)
 {
@@ -38,6 +44,11 @@ void sensor_hub_app_init(void)
     g_last_imu_ms = now_ms;
     g_sequence = 0U;
     mock_imu_provider_init(&g_mock_imu, SENSOR_HUB_IMU_PERIOD_MS);
+    if (icm42688_provider_init(&g_icm42688) == 0) {
+        g_status_flags = SENSOR_HUB_STATUS_ICM42688_READY;
+    } else {
+        g_status_flags = SENSOR_HUB_STATUS_IMU_FALLBACK | SENSOR_HUB_STATUS_IMU_ERROR;
+    }
 }
 
 void sensor_hub_app_poll(void)
@@ -49,7 +60,7 @@ void sensor_hub_app_poll(void)
     if (time_elapsed(now_ms, g_last_heartbeat_ms, SENSOR_HUB_HEARTBEAT_PERIOD_MS)) {
         g_last_heartbeat_ms = now_ms;
         ++g_sequence;
-        if (mcu_build_heartbeat_frame(g_sequence, now_ms, 0U, frame, sizeof(frame), &frame_len) == 0) {
+        if (mcu_build_heartbeat_frame(g_sequence, now_ms, g_status_flags, frame, sizeof(frame), &frame_len) == 0) {
             send_frame_if_ready(frame, frame_len);
         }
     }
@@ -57,7 +68,12 @@ void sensor_hub_app_poll(void)
     if (time_elapsed(now_ms, g_last_imu_ms, SENSOR_HUB_IMU_PERIOD_MS)) {
         imu_sample_c_t sample;
         g_last_imu_ms = now_ms;
-        mock_imu_provider_next(&g_mock_imu, now_ms, &sample);
+        if (icm42688_provider_read(&g_icm42688, now_ms, &sample) == 0) {
+            g_status_flags = SENSOR_HUB_STATUS_ICM42688_READY;
+        } else {
+            mock_imu_provider_next(&g_mock_imu, now_ms, &sample);
+            g_status_flags = SENSOR_HUB_STATUS_IMU_FALLBACK | SENSOR_HUB_STATUS_IMU_ERROR;
+        }
         ++g_sequence;
         if (mcu_build_imu_frame(g_sequence, &sample, frame, sizeof(frame), &frame_len) == 0) {
             send_frame_if_ready(frame, frame_len);

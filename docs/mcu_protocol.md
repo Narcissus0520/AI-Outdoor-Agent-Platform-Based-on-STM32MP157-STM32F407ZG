@@ -1,6 +1,6 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 USART1 PA9、115200 8N1 发送 heartbeat 和 Mock IMU 二进制帧；MP157 Runtime 的协议解析已存在，但真实 Linux 串口输入源和板间联调尚未完成。本阶段不实现真实 ICM42688 寄存器驱动。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 USART1 PA9、115200 8N1 发送 heartbeat 和 IMU 二进制帧；F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。MP157 Runtime 的协议解析已存在，但真实 Linux 串口输入源和板间联调尚未完成。
 
 串口上传输的是连续二进制帧，不附加换行符，也不转换为十六进制文本。
 
@@ -43,6 +43,16 @@ offset  size  field
 0       4     uptime_ms
 4       2     status_flags
 ```
+
+当前 F407 固件使用的 `status_flags`：
+
+```text
+bit 0 / 0x0001: ICM42688 ready，IMU 帧来自真实 ICM42688
+bit 1 / 0x0002: IMU fallback active，IMU 帧来自 Mock IMU
+bit 2 / 0x0004: IMU init/read error，ICM42688 初始化或读取失败
+```
+
+`scripts/verify_f407_uart.ps1` 会打印最后一帧 heartbeat 的 `last_heartbeat_status_flags`，上板验证时可用它判断当前 IMU 数据源。
 
 ## Mock Sensor Payload
 

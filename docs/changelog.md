@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-06-19
+
+### Added
+
+- Added F407 I2C2 initialization on PB10/PB11 and enabled the STM32F4 HAL I2C driver sources.
+- Added a board-level I2C memory read/write BSP for `HAL_I2C_Mem_Read/Write`.
+- Added an ICM42688 firmware data source with `WHO_AM_I` validation, 100 Hz accel/gyro configuration, temperature conversion, and 14-byte burst sample reads.
+- Added ICM42688 INT1 PB12 GPIO BSP wrapper.
+- Verified the real ICM42688 data path on F407 after correcting SCL/SDA wiring.
+
+### Changed
+
+- Replaced the temporary module naming and planning assumption with ICM42688.
+- F407 IMU frames now prefer real ICM42688 samples and fall back to Mock IMU when initialization or reads fail.
+- Heartbeat `status_flags` now report ICM42688 ready, IMU fallback, and IMU error states.
+- Refreshed README and Stage 1 docs to mark ICM42688 board validation complete and keep MP157 live serial integration as the next milestone.
+
+### Verified
+
+- UART capture after flashing reported 55 frames in 5 seconds, 5 heartbeat frames, 50 IMU frames, zero CRC errors, and `last_heartbeat_status_flags=0x0001`.
+
+## 2026-06-17
+
+### Added
+
+- Reserved F407 pins for the planned IMU integration: PB10, PB11, and PB12.
+- Added a minimal PB12 data-ready GPIO BSP wrapper for future IMU driver work.
+
+### Changed
+
+- Restored the USART1 Sensor Hub runtime entry after CubeMX regeneration so heartbeat and Mock IMU reporting remain the firmware baseline.
+- Replaced the previous incorrect module planning assumption pending updated module documentation.
+- Extended the F407 UART flashing script erase-stage ACK timeout to make normal global erase reliable after CubeMX pin updates.
+
+### Not Implemented
+
+- Real register/protocol access was intentionally deferred until the correct module documentation was available.
+
 ## 2026-06-16
 
 ### Added

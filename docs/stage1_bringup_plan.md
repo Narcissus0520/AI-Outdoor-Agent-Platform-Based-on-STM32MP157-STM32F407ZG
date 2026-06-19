@@ -23,7 +23,9 @@
 - 已包含：Core、HAL、CMSIS、`.ioc` 和 MDK-ARM 工程
 - 已包含：GNU 启动、链接脚本、仓库固件 CMake、HEX/BIN/map 产物生成
 - 已包含：USART1 PA9/PA10、115200 8N1 和阻塞式 HAL UART 发送
-- 未包含：真实传感器外设和 MP157 Linux 串口输入
+- 已包含：ICM42688 I2C2 PB10/PB11、INT1 PB12、I2C BSP、ICM42688 寄存器读取和 Mock IMU 兜底
+- 已包含：修正接线后的 ICM42688 真实读数上板验证
+- 未包含：MP157 Linux 真实串口输入和 F407 -> MP157 板间联调
 - 当前开发环境：GNU Arm Embedded Toolchain 14.2.Rel1、CMake 和 Ninja
 
 Cube 生成代码与项目代码的边界见 `docs/adr/0008-f407-cube-source-and-cmake-build-boundary.md`。
@@ -97,15 +99,16 @@ CubeMX 重新生成时，只允许更新 `firmware/stm32cube/`。业务代码不
 - [ ] 使用 MP157 Runtime 验证真实串口链路
 - [ ] 根据测量结果再决定是否引入 DMA 发送队列
 
-当前验收：F407 每 1000 ms 输出 heartbeat、每 100 ms 输出 Mock IMU 帧，PC 端 5 秒抓取 55 帧且 CRC 错误 0 帧。MP157 Runtime 真实串口输入仍待实现。
+当前验收：F407 每 1000 ms 输出 heartbeat、每 100 ms 输出 IMU 帧。修正 ICM42688 SCL/SDA 接线后，PC 端 5 秒抓取 55 帧、heartbeat 5 帧、IMU 50 帧、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。MP157 Runtime 真实串口输入仍待实现。
 
 上板验证环境：
 
 - 烧录链路：CH340 `COM3`，STM32 ROM UART Bootloader。
 - Programmer：用户已安装 STM32CubeProgrammer，CLI 路径为 `D:\Program Files (x86)\ST\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe`；当前仓库脚本直接实现 Bootloader 协议，以便精确控制一键下载电路的 DTR/RTS 时序。
 - Bootloader 识别结果：ACK `0x79`，Bootloader version `0x31`，chip ID `0x0413`。
-- 烧录命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3 -ReadoutUnprotectFirst`。
+- 烧录命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3`。
 - 验证命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5`。
+- 若 Bootloader 因读保护导致擦写命令返回 NACK，再追加 `-ReadoutUnprotectFirst`；该操作会擦除用户 Flash。
 
 当前串口接线：
 
@@ -117,9 +120,44 @@ F407 GND               - MP157 GND
 
 仅验证单向上报时，可以只连接 PA9、MP157 RX 和公共 GND。两端必须使用 3.3 V TTL 电平。
 
+### Step 6：ICM42688 I2C 接入
+
+- [x] 在 CubeMX 中配置 PB10 为 `I2C2_SCL`
+- [x] 在 CubeMX 中配置 PB11 为 `I2C2_SDA`
+- [x] 在 CubeMX 中配置 PB12 为 `ICM42688_INT1` 输入
+- [x] 新增 PB12 输入读取 BSP 封装 `board_icm42688_data_ready()`
+- [x] 新增 I2C2 初始化和 `HAL_I2C_Mem_Read/Write` BSP 封装
+- [x] 移植 ICM42688 `WHO_AM_I`、100 Hz accel/gyro 配置和数据读取逻辑
+- [x] F407 IMU 上报优先使用 ICM42688，失败时回退 Mock IMU 并设置 heartbeat `status_flags`
+- [x] 修正实际接线为 `SCL -> PB10`、`SDA -> PB11` 后，上板验证真实 ICM42688 IMU 数据路径
+
+当前接线要求：
+
+```text
+ICM42688 AD0  -> F407 3.3V     # 7-bit address 0x69
+ICM42688 SCL  -> F407 PB10     # I2C2_SCL
+ICM42688 SDA  -> F407 PB11     # I2C2_SDA
+ICM42688 INT1 -> F407 PB12
+ICM42688 GND  -> F407 GND
+```
+
+若接成 `SDA -> PB10`、`SCL -> PB11`，则与当前 CubeMX 配置相反，I2C 无法通信。此前错误模块资料不再作为实现依据。
+
+验收结果：修正接线后通过 UART Bootloader 刷写 `sensor_hub.bin`，PC 端 5 秒抓取 55 帧、heartbeat 5 帧、IMU 50 帧、CRC 错误 0 帧；最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 初始化和读取成功。
+
+### Step 7：MP157 Live Serial Integration
+
+- [ ] 在 MP157 Runtime 新增真实 MCU 串口输入路径，默认保留 mock 文件模式
+- [ ] 新增配置项：`mcu_input_mode = mock_file | serial`
+- [ ] 新增配置项：`mcu_serial_device = /dev/ttySTM*`
+- [ ] 新增配置项：`mcu_serial_baud = 115200`
+- [ ] 新增配置项：`mcu_serial_capture_seconds = 5`
+- [ ] 将 F407 PA9 (`USART1_TX`) 和 GND 接入 MP157 UART_RX/GND
+- [ ] 在 MP157 上验证 `runtime_status.json` 输出真实 heartbeat 和 IMU 状态
+- [ ] 根据实测串口稳定性再评估 UART DMA 发送队列和 Runtime 长期运行模型
+
 ## 暂不处理
 
-- 真实 ICM42688 寄存器驱动
 - RTOS 任务模型
 - UART DMA 优化
 - Bootloader 和固件升级

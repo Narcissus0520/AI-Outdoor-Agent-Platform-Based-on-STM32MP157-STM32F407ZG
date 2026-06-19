@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sensors/mock_imu_provider_c.h"
+#include "sensors/imu_sample_c.h"
 
 #include <stddef.h>
 #include <stdint.h>

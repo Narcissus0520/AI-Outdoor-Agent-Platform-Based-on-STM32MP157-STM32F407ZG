@@ -79,17 +79,24 @@ while ($offset -le ($data.Length - 10)) {
             $calculatedCrc = Get-Crc16Modbus $data ($offset + 2) (6 + $payloadLength)
             $receivedCrc = ([int]$data[$offset + 8 + $payloadLength]) -bor (([int]$data[$offset + 9 + $payloadLength]) -shl 8)
             $crcOk = $calculatedCrc -eq $receivedCrc
+            $frameType = ("0x{0:X2}" -f $data[$offset + 3])
+            $heartbeatStatusFlags = $null
+
+            if ($frameType -eq "0x01" -and $payloadLength -ge 6) {
+                $heartbeatStatusFlags = ([int]$data[$offset + 12]) -bor (([int]$data[$offset + 13]) -shl 8)
+            }
 
             if (-not $crcOk) {
                 ++$badCrc
             }
 
             $frames += [pscustomobject]@{
-                Type = ("0x{0:X2}" -f $data[$offset + 3])
+                Type = $frameType
                 Seq = (([int]$data[$offset + 4]) -bor (([int]$data[$offset + 5]) -shl 8))
                 PayloadLength = $payloadLength
                 CrcOk = $crcOk
                 Offset = $offset
+                HeartbeatStatusFlags = $heartbeatStatusFlags
             }
 
             $offset += $frameLength
@@ -102,6 +109,12 @@ while ($offset -le ($data.Length - 10)) {
 
 $heartbeatCount = @($frames | Where-Object { $_.Type -eq "0x01" }).Count
 $imuCount = @($frames | Where-Object { $_.Type -eq "0x11" }).Count
+$lastHeartbeat = @($frames | Where-Object { $_.Type -eq "0x01" } | Select-Object -Last 1)
+$lastHeartbeatStatusFlags = if ($lastHeartbeat.Count -gt 0 -and $null -ne $lastHeartbeat[0].HeartbeatStatusFlags) {
+    "0x{0:X4}" -f $lastHeartbeat[0].HeartbeatStatusFlags
+} else {
+    "n/a"
+}
 $preview = ($data | Select-Object -First 80 | ForEach-Object { $_.ToString("X2") }) -join " "
 
 Write-Host "bytes_read=$($data.Length)"
@@ -109,6 +122,7 @@ Write-Host "frames=$($frames.Count)"
 Write-Host "heartbeat=$heartbeatCount"
 Write-Host "imu=$imuCount"
 Write-Host "crc_bad=$badCrc"
+Write-Host "last_heartbeat_status_flags=$lastHeartbeatStatusFlags"
 Write-Host "preview_hex=$preview"
 Write-Host "first_frames:"
 $frames | Select-Object -First 10 | Format-Table -AutoSize

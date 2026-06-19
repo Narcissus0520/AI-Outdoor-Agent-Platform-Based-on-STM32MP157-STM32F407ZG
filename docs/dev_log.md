@@ -1,5 +1,157 @@
 # Dev Log
 
+## 2026-06-19 - ICM42688 I2C Firmware Data Source
+
+### 本次完成
+
+- 阅读 ICM42688 参考 HAL 工程和模块规格书，确认 `AD0=3.3V` 时 I2C 7-bit 地址为 `0x69`。
+- 明确当前板级接线需要修正为 `ICM42688 SCL -> F407 PB10`、`ICM42688 SDA -> F407 PB11`；此前描述的 `SDA -> PB10`、`SCL -> PB11` 与 CubeMX 配置相反。
+- 新增 `MX_I2C2_Init()`，启用 F407 `I2C2`，配置 100 kHz 标准模式。
+- 补充 STM32F4 HAL I2C 源文件并加入 F407 固件 CMake 构建。
+- 新增 `board_i2c_mem_read()` / `board_i2c_mem_write()` BSP，底层使用 `HAL_I2C_Mem_Read/Write`。
+- 新增 ICM42688 固件数据源：`WHO_AM_I=0x47` 检测、accel ±4g、gyro ±1000 dps、100 Hz ODR、温度/加速度/陀螺仪定点换算。
+- F407 IMU 上报优先使用 ICM42688，初始化或读取失败时回退 Mock IMU，并通过 heartbeat `status_flags` 标记状态。
+- 将 PB12 命名为 `ICM42688_INT1` 并新增 `board_icm42688_data_ready()` BSP。
+- 增强 `scripts/verify_f407_uart.ps1`，输出最后一帧 heartbeat 的 `status_flags`，便于区分真实 ICM42688 数据和 Mock fallback。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/i2c.h`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/i2c.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/main.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/stm32f4xx_hal_msp.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/stm32f4xx_hal_conf.h`
+- `f407/sensor-hub/firmware/bsp/`
+- `f407/sensor-hub/firmware/sensors/`
+- `f407/sensor-hub/firmware/protocol/mcu_frame_builder_c.h`
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- `README.md`
+- `f407/sensor-hub/README.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/mcu_protocol.md`
+- `docs/repo_structure.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `scripts/verify_f407_uart.ps1`
+
+### 验证结果
+
+- 已执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_f407.ps1 -BuildType Debug
+```
+
+- F407 固件构建成功，Debug 固件使用 10176 B Flash、1768 B RAM。
+- F407 PC mock CTest 1/1 通过。
+- `git diff --check` 通过，仅保留 Cube 生成文件 CRLF/LF 转换 warning。
+- 已修正接线为 `SCL -> PB10`、`SDA -> PB11` 后执行上板验证：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5
+```
+
+- UART Bootloader 识别成功：Bootloader version `0x31`，Chip ID `0x0413`。
+- 固件写入和逐字节回读校验成功。
+- 5 秒读取 1781 字节，共解析 55 帧。
+- heartbeat：5 帧。
+- IMU：50 帧。
+- CRC 错误：0 帧。
+- 最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 ready，IMU 帧来自真实 ICM42688 数据路径。
+- 第一次刷写后串口验证曾读到 0 字节，重新触发应用复位后恢复正常输出；该现象与此前一键下载电路应用态复位状态切换一致。
+
+### 后续 TODO
+
+- 完成文档一致性清理后，将当前 F407 + ICM42688 里程碑作为可提交节点固定下来。
+- 在 MP157 Runtime 新增真实 MCU 串口输入路径，复用现有 `McuFrameParser`、`ImuPayloadParser` 和 `runtime_status.json` 输出。
+- 新增串口相关配置项：`mcu_input_mode`、`mcu_serial_device`、`mcu_serial_baud`、`mcu_serial_capture_seconds`；默认继续使用 mock 文件模式。
+- 完成 F407 USART1_TX/GND 到 MP157 UART_RX/GND 的板间验证。
+- 根据 INT1 实际输出模式决定是否将 PB12 从普通输入升级为 EXTI 数据就绪中断。
+- 根据串口稳定性评估 F407 USART 从阻塞式 `HAL_UART_Transmit()` 演进到 DMA/环形缓冲。
+
+## 2026-06-17 - IMU Pin Reservation
+
+### 本次完成
+
+- 接收新的 F407 CubeMX 管脚配置：PB10/PB11/PB12 用于后续 IMU 对接。
+- 舍弃此前错误模块资料假设，后续以实际模块资料为准。
+- 恢复 CubeMX 重新生成后被覆盖的 USART1 初始化和 Sensor Hub app 主循环接入。
+- 将 PB12 调整为 IMU INT 输入，并新增数据就绪 BSP 封装。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/stm32cube/`
+- `f407/sensor-hub/firmware/bsp/board_icm42688_gpio.*`
+- `f407/sensor-hub/firmware/bsp/stm32/board_icm42688_gpio_stm32.c`
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- `README.md`
+- `f407/sensor-hub/README.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `docs/project_design.md`
+- `docs/mcu_protocol.md`
+- `docs/repo_structure.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `scripts/flash_f407_uart.ps1`
+
+### 验证结果
+
+- 已执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_f407.ps1 -BuildType Debug
+```
+
+- F407 固件构建成功，生成 `sensor_hub.elf`、`sensor_hub.hex`、`sensor_hub.bin` 和 `sensor_hub.map`。
+- Debug 固件使用 6624 B Flash、1680 B RAM。
+- 已执行：
+
+```powershell
+cmake -S f407/sensor-hub -B f407/sensor-hub/build
+cmake --build f407/sensor-hub/build
+ctest --test-dir f407/sensor-hub/build -C Debug --output-on-failure
+```
+
+- F407 PC mock CTest 1/1 通过。
+- 已执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3
+```
+
+- UART Bootloader 识别成功：Bootloader version `0x31`，Chip ID `0x0413`。
+- 固件写入和逐字节回读校验成功。
+- 已执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5
+```
+
+- 5 秒读取 1809 字节，共解析 55 帧。
+- heartbeat：5 帧。
+- Mock IMU：50 帧。
+- CRC 错误：0 帧。
+
+### 遇到的问题与解决方案
+
+- 问题：CubeMX 重新生成后覆盖了 `main.c` 中的 `MX_USART1_UART_Init()`、`sensor_hub_app_init()`、`sensor_hub_app_poll()` 和 LED 心跳逻辑，同时 `HAL_UART_MODULE_ENABLED` 与 USART1 MSP 初始化缺失。
+  解决：恢复 USART1 初始化、Sensor Hub app 主循环入口、PF9 LED 心跳、HAL UART 模块开关和 PA9/PA10 USART1 MSP 初始化。
+- 问题：早期模块资料假设错误。
+  解决：舍弃错误资料实现依据，将 PB12 作为 IMU INT 输入，等待真实模块资料再实现驱动。
+- 问题：普通全片擦除阶段等待 ACK 时，`scripts/flash_f407_uart.ps1` 使用 2 秒串口读超时，实测在 F407 上会偶发超时。
+  解决：将 erase 阶段 ACK 等待窗口临时扩展到 30 秒，并在擦除完成后恢复原串口超时。
+- 问题：刷写成功后第一次串口验证读到 0 字节。
+  解决：复核一键下载电路 DTR/RTS 状态，确认 `DTR=false / RTS=true` 会停在非应用输出状态；切回应用复位状态后复测通过。
+
+### 后续 TODO
+
+- 等待正确模块资料后实现 I2C 初始化、寄存器读取、数据换算和真实传感器协议帧。
+- 根据真实数据格式决定是否替换当前 Mock IMU 帧或新增独立传感器帧。
+
 ## 2026-06-16 - F407 UART Bootloader Flash and Frame Validation
 
 ### 本次完成
