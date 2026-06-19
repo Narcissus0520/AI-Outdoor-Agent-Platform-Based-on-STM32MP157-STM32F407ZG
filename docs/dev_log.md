@@ -1,5 +1,83 @@
 # Dev Log
 
+## 2026-06-19 - MP157 Onboard ICM20608 Service
+
+### 本次完成
+
+- 参考 正点原子 STM32MP157 ICM20608 字符设备和 IIO 示例，新增 MP157 Runtime 板载 ICM20608 读取路径。
+- 通过 MP157 串口 console 确认当前板上系统为 Linux `5.4.31-g886e225be` / OpenSTLinux，设备树包含 `/soc/spi@44004000/icm20608@0`，SPI 设备枚举为 `spi0.0`。
+- 通过 `modprobe icm20608` 确认当前镜像加载 `/lib/modules/5.4.31-g886e225be/kernel/drivers/char/icm20608.ko`，内核打印 `ICM20608 ID = 0XAE`。
+- 确认当前板上默认可用入口为 `/dev/icm20608` 字符设备，IIO 目录当前只有 ADC/DAC。
+- 新增 `Icm20608CharReader`，读取 `/dev/icm20608` 返回的 7 个 `signed int`，并兼容正点原子字符设备驱动 `read()` 返回 0 的行为。
+- 新增 `Icm20608IioReader`，从 IIO sysfs 读取 `in_accel_*_raw`、`in_anglvel_*_raw` 和 `in_temp_*`，并按示例公式换算 g、dps 和摄氏度。
+- 新增 `Icm20608Service`，通过 Runtime Service 生命周期接入主程序。
+- 新增 `BoardImuStatus`，并在 `runtime_status.json` 中输出独立 `board_imu` 字段，避免与 F407 MCU 协议帧的 `imu` 字段混淆。
+- 新增配置项：`board_imu_enabled`、`board_imu_source`、`board_imu_device_path`、`board_imu_iio_path`、`board_imu_sample_count`、`board_imu_sample_interval_ms`。
+- 已完成近期计划调整后的 MP157 板载 ICM20608 上板验证，下一步继续 F407 -> MP157 串口对通。
+- 新增 ADR-0009，记录“优先使用 MP157 板载 ICM20608 做主控侧验证”的方案取舍。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0009-use-mp157-icm20608-iio-first.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/CMakeLists.txt`
+- `mp157/outdoor-core-service/config/runtime.conf`
+- `mp157/outdoor-core-service/include/config/app_config.h`
+- `mp157/outdoor-core-service/include/runtime/runtime_manager.h`
+- `mp157/outdoor-core-service/include/runtime/runtime_status.h`
+- `mp157/outdoor-core-service/include/sensors/`
+- `mp157/outdoor-core-service/include/services/icm20608_service.h`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `mp157/outdoor-core-service/src/config/config_loader.cpp`
+- `mp157/outdoor-core-service/src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/src/runtime/runtime_manager.cpp`
+- `mp157/outdoor-core-service/src/sensors/`
+- `mp157/outdoor-core-service/src/services/icm20608_service.cpp`
+- `mp157/outdoor-core-service/tests/icm20608_char_reader_tests.cpp`
+- `mp157/outdoor-core-service/tests/icm20608_iio_reader_tests.cpp`
+
+### 验证结果
+
+- 已执行：
+
+```powershell
+cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build
+cmake --build mp157/outdoor-core-service/build
+ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure
+powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1
+```
+
+- CMake 配置和构建通过。
+- CTest 通过：`mcu_protocol_tests`、`icm20608_iio_reader_tests`、`icm20608_char_reader_tests`。
+- Runtime 验证脚本通过，默认配置下 `board_imu.enabled=false`，默认 source 为 `icm20608_char`。
+- 已执行 fake-IIO Runtime 冒烟验证：使用临时 IIO sysfs 目录运行 `--board-imu`，状态文件中 `board_imu.enabled=true`、`board_imu.seen=true`、`sample_count=2`。
+- 首次 Windows 构建因残留并发编译进程触发 MSVC Debug PDB `C1041`，已通过清理残留进程并为 MSVC 增加 `/FS` 解决。
+- 已执行 MP157 串口 console 检查：`modprobe icm20608` 成功，内核打印 `ICM20608 ID = 0XAE`。
+- 已通过串口临时传输并运行 正点原子 `22_spi/icm20608App`，确认 `/dev/icm20608` 可连续读取真实数据；静置样例中 Z 轴约 `0.97g`，温度约 `39.5°C`。
+- 临时传输文件 `/tmp/icm20608App` 和 `/tmp/icm20608App.b64` 已清理。
+- 已确认 `F:\BaiduNetdiskDownload\【正点原子】STM32MP157开发板（A盘）-基础资料\05、开发工具\01、交叉编译器` 中的工具链包面向 Linux host，当前 Windows PowerShell 环境不能直接原生使用；本次改用 Windows host `arm-none-linux-gnueabihf-g++ 9.2.1`。
+- 已交叉编译项目自有 `outdoor_core_runtime` 为 ARMv7 hard-float ELF，并通过 CH340 串口 base64/tar 包部署到 `/tmp/ai_outdoor_runtime`；上传包 SHA256 校验一致。
+- 已在 MP157 板上运行：
+
+```bash
+cd /tmp/ai_outdoor_runtime
+modprobe icm20608
+./outdoor_core_runtime --config config/runtime.conf --board-imu --board-imu-source char_device --board-imu-device-path /dev/icm20608 --board-imu-samples 5 --log-level info
+```
+
+- 验证结果：程序 `EXIT:0`，`runtime/runtime_status.json` 中 `board_imu.enabled=true`、`board_imu.seen=true`、`source=icm20608_char`、`sample_count=5`、`last_error=""`；静置样例 `accel_z_g=0.983`、`gyro_x_dps=-0.671`、`gyro_y_dps=0.549`、`temperature_celsius=36.521`。
+
+### 后续 TODO
+
+- 将当前手动 ARMv7 交叉编译和串口部署流程沉淀为脚本或独立部署文档。
+- 完成 MP157 板载 ICM20608 验证后，再推进 F407 -> MP157 真实串口输入源。
+
 ## 2026-06-19 - F407 100 Hz IMU Sampling Target
 
 ### 本次完成

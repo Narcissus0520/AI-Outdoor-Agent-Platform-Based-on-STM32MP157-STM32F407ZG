@@ -16,6 +16,7 @@ public:
     void stop();
     RuntimeStatus status() const;
     void setMcuStatus(const outdoor::mcu::McuStatus& status);
+    void setBoardImuStatus(const outdoor::sensors::BoardImuStatus& status);
 
 private:
     std::vector<std::unique_ptr<IService>> services_;

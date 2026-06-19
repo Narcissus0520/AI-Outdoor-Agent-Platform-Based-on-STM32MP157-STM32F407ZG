@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mcu/mcu_status.h"
+#include "sensors/board_imu_status.h"
 
 #include <cstddef>
 #include <string>
@@ -22,6 +23,7 @@ struct RuntimeStatus {
     std::size_t startedServiceCount = 0;
     std::string lastError;
     outdoor::mcu::McuStatus mcuStatus;
+    outdoor::sensors::BoardImuStatus boardImuStatus;
 };
 
 const char* runtimeStateToString(RuntimeState state);

@@ -47,7 +47,10 @@ try {
         "src\mcu\mcu_status.cpp" `
         "src\runtime\runtime_manager.cpp" `
         "src\runtime\runtime_status.cpp" `
+        "src\sensors\icm20608_char_reader.cpp" `
+        "src\sensors\icm20608_iio_reader.cpp" `
         "src\services\gnss_replay_service.cpp" `
+        "src\services\icm20608_service.cpp" `
         "src\services\mcu_mock_service.cpp" `
         -o $output
 
@@ -75,6 +78,18 @@ try {
 
     if ($statusText -notmatch '"service_count": 2') {
         throw "runtime status output did not report service count"
+    }
+
+    if ($statusText -notmatch '"board_imu": \{') {
+        throw "runtime status output did not contain board IMU status object"
+    }
+
+    if ($statusText -notmatch '"enabled": false') {
+        throw "runtime status output did not report disabled board IMU by default"
+    }
+
+    if ($statusText -notmatch '"source": "icm20608_char"') {
+        throw "runtime status output did not report board IMU source"
     }
 
     if ($statusText -notmatch '"heartbeat_seen": true') {

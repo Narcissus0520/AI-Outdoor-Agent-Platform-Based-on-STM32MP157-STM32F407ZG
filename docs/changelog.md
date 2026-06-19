@@ -4,6 +4,35 @@
 
 ### Added
 
+- Added MP157 onboard ICM20608 character-device reader, IIO reader, and Runtime service.
+- Added `board_imu` status output to `runtime_status.json`, separate from F407 MCU `imu` frames.
+- Added board IMU configuration keys: `board_imu_enabled`, `board_imu_source`, `board_imu_device_path`, `board_imu_iio_path`, `board_imu_sample_count`, and `board_imu_sample_interval_ms`.
+- Added fake character-device and fake-IIO unit tests for ICM20608 accel/gyro/temp conversion.
+- Added ADR-0009 to document the decision to validate MP157 onboard ICM20608 before F407 -> MP157 serial integration.
+
+### Changed
+
+- Reordered the near-term Sensor Integration plan: MP157 onboard ICM20608 validation now comes before F407 -> MP157 live serial integration.
+- Changed the MP157 board IMU default source to `char_device` after board-side verification showed the current image exposes `/dev/icm20608`, not an IIO IMU node.
+- Updated README, project design, Stage 1 plan, and repository structure docs for the MP157 board IMU path.
+- Added MSVC `/FS` for the MP157 CMake target to avoid Debug PDB write conflicts during local Visual Studio builds.
+
+### Verified
+
+- `cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build`
+- `cmake --build mp157/outdoor-core-service/build`
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure`
+- `powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- Fake-IIO Runtime smoke test with `--board-imu` reported `board_imu.enabled=true`, `board_imu.seen=true`, and `sample_count=2`.
+- MP157 serial console confirmed Linux `5.4.31-g886e225be`, OpenSTLinux, device tree node `/soc/spi@44004000/icm20608@0`, SPI device `spi0.0`, and `modprobe icm20608` printing `ICM20608 ID = 0XAE`.
+- Temporarily transferred and ran ALIENTEK `22_spi/icm20608App` on MP157; `/dev/icm20608` returned live samples with Z acceleration around `0.97g` and temperature around `39.5°C`.
+- Cross-compiled the project Runtime with Windows host `arm-none-linux-gnueabihf-g++ 9.2.1` and deployed it to MP157 over the CH340 serial console.
+- MP157 onboard Runtime validation passed: `board_imu.enabled=true`, `board_imu.seen=true`, `source=icm20608_char`, `sample_count=5`, `last_error=""`, Z acceleration around `0.983g`, and temperature around `36.5°C`.
+
+## 2026-06-19
+
+### Added
+
 - Added F407 I2C2 initialization on PB10/PB11 and enabled the STM32F4 HAL I2C driver sources.
 - Added a board-level I2C memory read/write BSP for `HAL_I2C_Mem_Read/Write`.
 - Added an ICM42688 firmware data source with `WHO_AM_I` validation, 100 Hz accel/gyro configuration, temperature conversion, and 14-byte burst sample reads.

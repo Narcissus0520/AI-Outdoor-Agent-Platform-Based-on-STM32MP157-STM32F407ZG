@@ -21,7 +21,10 @@ set(OUTDOOR_CORE_SOURCES
     src/mcu/mcu_status.cpp
     src/runtime/runtime_manager.cpp
     src/runtime/runtime_status.cpp
+    src/sensors/icm20608_char_reader.cpp
+    src/sensors/icm20608_iio_reader.cpp
     src/services/gnss_replay_service.cpp
+    src/services/icm20608_service.cpp
     src/services/mcu_mock_service.cpp
 )
 
@@ -38,6 +41,7 @@ target_include_directories(outdoor_core
 target_compile_options(outdoor_core
     PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
+        $<$<CXX_COMPILER_ID:MSVC>:/FS>
 )
 
 add_executable(outdoor_core_runtime
@@ -61,3 +65,25 @@ target_link_libraries(mcu_protocol_tests
 )
 
 add_test(NAME mcu_protocol_tests COMMAND mcu_protocol_tests)
+
+add_executable(icm20608_iio_reader_tests
+    tests/icm20608_iio_reader_tests.cpp
+)
+
+target_link_libraries(icm20608_iio_reader_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME icm20608_iio_reader_tests COMMAND icm20608_iio_reader_tests)
+
+add_executable(icm20608_char_reader_tests
+    tests/icm20608_char_reader_tests.cpp
+)
+
+target_link_libraries(icm20608_char_reader_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME icm20608_char_reader_tests COMMAND icm20608_char_reader_tests)

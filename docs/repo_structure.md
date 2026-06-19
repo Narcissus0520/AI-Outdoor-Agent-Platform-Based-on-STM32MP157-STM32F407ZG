@@ -21,6 +21,8 @@ mp157/outdoor-core-service/
 - `tests/`
 - `CMakeLists.txt`
 
+当前 MP157 Runtime 已包含 `include/sensors` 和 `src/sensors`，用于主控侧板载传感器读取。当前实现为 ICM20608 字符设备 reader 和 IIO sysfs reader；运行时服务位于 `include/services/icm20608_service.h` 和 `src/services/icm20608_service.cpp`，默认关闭，上板时通过配置或 `--board-imu` 启用。真实 MP157 板上已通过 `/dev/icm20608` 字符设备完成 Runtime 读取验证。
+
 ## `f407/`
 
 `f407/` 用于 STM32F407ZG Sensor Hub 固件。

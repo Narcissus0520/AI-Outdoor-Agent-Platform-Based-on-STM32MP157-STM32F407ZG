@@ -83,4 +83,9 @@ void RuntimeManager::setMcuStatus(const outdoor::mcu::McuStatus& status)
     status_.mcuStatus = status;
 }
 
+void RuntimeManager::setBoardImuStatus(const outdoor::sensors::BoardImuStatus& status)
+{
+    status_.boardImuStatus = status;
+}
+
 } // namespace outdoor::runtime

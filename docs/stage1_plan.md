@@ -1,8 +1,8 @@
 # Stage 1 Plan
 
-Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F407ZG Sensor Hub 协议解析和 Sensor Hub 状态管理。
+Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加传感器集成能力、STM32F407ZG Sensor Hub 协议解析和 Sensor Hub 状态管理。
 
-当前在 STM32Cube 固件基线和 MP157 Linux Runtime 协议解析基础上，推进 F407 侧 ICM42688 I2C 数据源接入。F407 固件已实现真实 ICM42688 优先、Mock IMU 兜底的数据源策略；真实传感器读数已在修正 SCL/SDA 接线后完成 F407 上板串口抓包验证。
+当前在 STM32Cube 固件基线和 MP157 Linux Runtime 协议解析基础上，已经完成 F407 侧 ICM42688 I2C 数据源接入。F407 固件已实现真实 ICM42688 优先、Mock IMU 兜底的数据源策略；真实传感器读数已在修正 SCL/SDA 接线后完成 F407 上板串口抓包验证。近期执行顺序已先完成 MP157 开发板自带 ICM20608 的主控侧传感器读取和上板验证，下一步继续 F407 -> MP157 板间联调。
 
 ## Stage 1.1: 协议文档和协议常量
 
@@ -89,7 +89,30 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 - [ ] 评估是否需要 UART DMA/环形缓冲；当前 100 Hz IMU 帧带宽低于 115200 8N1 能力，但发送仍为阻塞式 `HAL_UART_Transmit()`
 - [ ] 清理 PC mock C++ 层 `Icm42688Driver` 占位接口或将其重命名为 host-side placeholder，避免与真实固件数据源混淆
 
-## Stage 1.9: MP157 Live Serial Integration
+## Stage 1.9: MP157 板载 ICM20608 验证
+
+- [x] 参考 正点原子 STM32MP157 ICM20608 字符设备与 IIO 示例，确认当前板上系统实际加载的是 `drivers/char/icm20608.ko`
+- [x] 通过串口 console 执行 `modprobe icm20608`，确认内核打印 `ICM20608 ID = 0XAE`
+- [x] 确认当前板上设备树存在 `/soc/spi@44004000/icm20608@0`，SPI 设备枚举为 `spi0.0`
+- [x] 使用正点原子 `22_spi/icm20608App` 通过 `/dev/icm20608` 读取真实数据，静置时 Z 轴约 `0.97g`、温度约 `39.5°C`
+- [x] 新增 `Icm20608IioReader`，读取 `in_accel_*_raw`、`in_anglvel_*_raw`、`in_temp_*` 并按示例公式换算实际值
+- [x] 新增 `Icm20608CharReader`，读取 `/dev/icm20608` 返回的 7 个 `signed int`，并按示例公式换算实际值
+- [x] 新增 `Icm20608Service`，通过 Runtime Service 生命周期接入 MP157 Runtime
+- [x] 新增配置项：`board_imu_enabled`
+- [x] 新增配置项：`board_imu_source = char_device | iio | auto`
+- [x] 新增配置项：`board_imu_device_path`
+- [x] 新增配置项：`board_imu_iio_path`
+- [x] 新增配置项：`board_imu_sample_count`
+- [x] 新增配置项：`board_imu_sample_interval_ms`
+- [x] `runtime_status.json` 新增 `board_imu` 字段，独立于 F407 MCU 协议帧的 `imu` 字段
+- [x] 新增 fake-IIO reader 单元测试
+- [x] 新增 fake character-device reader 单元测试
+- [x] 完成 PC 侧 fake-IIO Runtime 冒烟验证
+- [x] 将 MP157 Runtime 交叉编译为 ARMv7 hard-float 可执行文件并部署到板上
+- [x] 在真实 MP157 板上运行 `--board-imu --board-imu-source char_device`，确认 `runtime_status.json` 中 `board_imu.enabled=true`、`board_imu.seen=true`
+- [x] 记录 MP157 板载 ICM20608 上板验证日志、驱动加载方式和设备树/内核模块前置条件
+
+## Stage 1.10: MP157 Live Serial Integration
 
 - [ ] 新增 MP157 Runtime 真实 MCU 串口输入路径，复用现有 `McuFrameParser`、`ImuPayloadParser` 和 `runtime_status.json` 输出
 - [ ] 新增配置项：`mcu_input_mode = mock_file | serial`
@@ -105,4 +128,6 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 - STM32F407ZG CubeMX 基础工程、仓库自主管理的 GNU ARM 构建和 UART Bootloader 上板验证已经完成。
 - ICM42688 I2C 固件路径已实现并通过构建；真实传感器数据已在修正接线后通过 F407 串口抓包确认，当前 100 Hz 版本实测 `imu_rate_hz=100.2`。
 - 当前 F407 固件已在板上通过 USART1 输出 heartbeat 和真实 ICM42688 IMU 帧；MP157 Runtime 仍使用 mock 文件输入，尚未实现真实 Linux 串口输入源。
+- MP157 Runtime 已新增板载 ICM20608 字符设备读取服务，并保留 IIO 可选路径；PC 侧已通过 fake character-device 和 fake-IIO 自动化验证，真实 Runtime ARM 可执行文件已部署到 MP157 并通过 `/dev/icm20608` 读取验证。
+- F407 -> MP157 对通暂后移到 MP157 板载 ICM20608 验证之后。
 - 暂不引入 UI、HTTP API 或 AI Agent。

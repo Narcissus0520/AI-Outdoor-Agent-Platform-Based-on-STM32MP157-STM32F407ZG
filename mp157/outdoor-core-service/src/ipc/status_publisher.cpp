@@ -64,6 +64,7 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
 
             const auto& mcu = status.mcuStatus;
             const auto& imu = mcu.imuSample;
+            const auto& boardImu = status.boardImuStatus;
             stream << std::fixed << std::setprecision(3)
                    << "{\n"
                    << "  \"runtime\": {\n"
@@ -98,6 +99,21 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
                    << "    \"gyro_z_dps\": " << outdoor::protocol::gyroMdpsToDps(imu.gyroZMdps) << ",\n"
                    << "    \"temperature_celsius\": "
                    << outdoor::protocol::centiCelsiusToCelsius(imu.temperatureCentiC) << "\n"
+                   << "  },\n"
+                   << "  \"board_imu\": {\n"
+                   << "    \"enabled\": " << (boardImu.enabled ? "true" : "false") << ",\n"
+                   << "    \"seen\": " << (boardImu.seen ? "true" : "false") << ",\n"
+                   << "    \"source\": \"" << jsonEscape(boardImu.source) << "\",\n"
+                   << "    \"device_path\": \"" << jsonEscape(boardImu.devicePath) << "\",\n"
+                   << "    \"sample_count\": " << boardImu.sampleCount << ",\n"
+                   << "    \"accel_x_g\": " << boardImu.accelXG << ",\n"
+                   << "    \"accel_y_g\": " << boardImu.accelYG << ",\n"
+                   << "    \"accel_z_g\": " << boardImu.accelZG << ",\n"
+                   << "    \"gyro_x_dps\": " << boardImu.gyroXDps << ",\n"
+                   << "    \"gyro_y_dps\": " << boardImu.gyroYDps << ",\n"
+                   << "    \"gyro_z_dps\": " << boardImu.gyroZDps << ",\n"
+                   << "    \"temperature_celsius\": " << boardImu.temperatureCelsius << ",\n"
+                   << "    \"last_error\": \"" << jsonEscape(boardImu.lastError) << "\"\n"
                    << "  }\n"
                    << "}\n";
         }
