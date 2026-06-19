@@ -63,7 +63,7 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 - [x] 新增 `board_get_tick_ms()` BSP 占位接口
 - [x] 新增 C 版 CRC16/MODBUS 和 MCU frame builder
 - [x] 新增 C 版 Mock IMU Provider
-- [x] `sensor_hub_app_poll()` 每 1000 ms 发送 heartbeat，每 100 ms 发送 IMU frame
+- [x] `sensor_hub_app_poll()` 每 1000 ms 发送 heartbeat，每 10 ms 发送 IMU frame
 - [x] 导入 STM32CubeMX 生成的 STM32F407ZG HAL 基础工程
 - [x] 将 Cube 生成代码隔离到 `firmware/stm32cube/`
 - [x] 补充 GNU ARM 启动文件、链接脚本和 CMake toolchain
@@ -78,8 +78,18 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 - [x] 新增 PB12 INT1 输入读取 BSP 封装
 - [x] 新增 I2C2 BSP 和 ICM42688 固件数据源
 - [x] 修正 SCL/SDA 接线后完成真实 ICM42688 上板串口抓包验证
+- [x] 将 F407 侧 ICM42688 读取和 IMU 帧上报周期调整为 100 Hz
+- [x] 上板复测 100 Hz IMU 输出，5 秒抓取 heartbeat 5 帧、IMU 501 帧、`imu_rate_hz=100.2`、CRC 错误 0 帧
 
-## Stage 1.8: MP157 Live Serial Integration
+## Stage 1.8: F407 Sensor Hub 完成项
+
+- [ ] 明确是否启用 ICM42688 INT1 数据就绪中断；当前为 10 ms 轮询读取
+- [ ] 增加 I2C 读失败后的重新初始化/恢复策略；当前失败时回退 Mock IMU 并设置 heartbeat `status_flags`
+- [ ] 评估是否需要 ICM42688 FIFO；当前直接 burst 读取最新 14 字节样本
+- [ ] 评估是否需要 UART DMA/环形缓冲；当前 100 Hz IMU 帧带宽低于 115200 8N1 能力，但发送仍为阻塞式 `HAL_UART_Transmit()`
+- [ ] 清理 PC mock C++ 层 `Icm42688Driver` 占位接口或将其重命名为 host-side placeholder，避免与真实固件数据源混淆
+
+## Stage 1.9: MP157 Live Serial Integration
 
 - [ ] 新增 MP157 Runtime 真实 MCU 串口输入路径，复用现有 `McuFrameParser`、`ImuPayloadParser` 和 `runtime_status.json` 输出
 - [ ] 新增配置项：`mcu_input_mode = mock_file | serial`
@@ -93,6 +103,6 @@ Stage 1 目标：在现有 Linux Outdoor Core Runtime 基础上，增加 STM32F4
 
 - 当前 Stage 1 使用 ICM42688 真实数据源优先、Mock IMU 兜底的方式跑通 F407 Sensor Hub 软件模块到 MP157 Runtime 的协议链路。
 - STM32F407ZG CubeMX 基础工程、仓库自主管理的 GNU ARM 构建和 UART Bootloader 上板验证已经完成。
-- ICM42688 I2C 固件路径已实现并通过构建；真实传感器数据已在修正接线后通过 F407 串口抓包确认。
+- ICM42688 I2C 固件路径已实现并通过构建；真实传感器数据已在修正接线后通过 F407 串口抓包确认，当前 100 Hz 版本实测 `imu_rate_hz=100.2`。
 - 当前 F407 固件已在板上通过 USART1 输出 heartbeat 和真实 ICM42688 IMU 帧；MP157 Runtime 仍使用 mock 文件输入，尚未实现真实 Linux 串口输入源。
 - 暂不引入 UI、HTTP API 或 AI Agent。

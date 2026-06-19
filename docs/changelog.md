@@ -16,10 +16,14 @@
 - F407 IMU frames now prefer real ICM42688 samples and fall back to Mock IMU when initialization or reads fail.
 - Heartbeat `status_flags` now report ICM42688 ready, IMU fallback, and IMU error states.
 - Refreshed README and Stage 1 docs to mark ICM42688 board validation complete and keep MP157 live serial integration as the next milestone.
+- Changed the F407 IMU polling and reporting period from 100 ms to 10 ms for a 100 Hz Sensor Hub target.
+- Updated the F407 UART verification script to report IMU frame rate and fail below the configured minimum IMU rate.
+- Documented the F407/ICM42688 power-on sequence, firmware initialization flow, runtime workflow, and UART Bootloader verification sequence.
 
 ### Verified
 
 - UART capture after flashing reported 55 frames in 5 seconds, 5 heartbeat frames, 50 IMU frames, zero CRC errors, and `last_heartbeat_status_flags=0x0001`.
+- 100 Hz UART capture after flashing reported 506 frames in 5 seconds, 5 heartbeat frames, 501 IMU frames, `imu_rate_hz=100.2`, zero CRC errors, and `last_heartbeat_status_flags=0x0001`.
 
 ## 2026-06-17
 

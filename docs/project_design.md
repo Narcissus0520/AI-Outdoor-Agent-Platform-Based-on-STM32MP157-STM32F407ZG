@@ -142,6 +142,7 @@ f407/sensor-hub MockImuProvider
 f407/sensor-hub/firmware sensor_hub_app_poll()
   -> board_get_tick_ms()
   -> icm42688_provider_read() or mock_imu_provider_next()
+  -> 10 ms IMU poll period, nominal 100 Hz
   -> mcu_build_heartbeat_frame() / mcu_build_imu_frame()
   -> board_uart_send_bytes()
   -> HAL_UART_Transmit(USART1)
@@ -152,8 +153,15 @@ ICM42688 I2C sensor path
   -> PB10 I2C2_SCL
   -> PB11 I2C2_SDA
   -> PB12 ICM42688_INT1 input
+  -> sensor_hub_app_init()
+  -> register bank 0
+  -> DEVICE_CONFIG soft reset
   -> HAL_I2C_Mem_Read/Write(I2C2, 0x69 << 1)
   -> WHO_AM_I 0x47 check
+  -> ACCEL_CONFIG0/GYRO_CONFIG0 range + 100 Hz ODR
+  -> PWR_MGMT0 accel/gyro enable
+  -> sensor_hub_app_poll()
+  -> 10 ms burst read from TEMP_DATA1
   -> 100 Hz accel/gyro sample
   -> MCU sensor_imu frame
 
@@ -205,6 +213,14 @@ F407 固件采用双边界管理：
 - 当前可生成 `sensor_hub.elf`、`.hex`、`.bin`、`.map` 并输出 Flash/RAM 使用量。
 - 当前可通过 `scripts/flash_f407_uart.ps1` 使用 STM32 ROM UART Bootloader 烧录并回读校验 F407 固件，通过 `scripts/verify_f407_uart.ps1` 在 PC 侧验证 heartbeat 和 IMU 帧。
 
+F407 上电后工作流程：
+
+- CubeMX 生成代码负责 HAL、时钟、GPIO、I2C2 和 USART1 初始化。
+- 项目 USER CODE 区域只调用 `sensor_hub_app_init()` 和 `sensor_hub_app_poll()`，业务逻辑保留在 `firmware/app`、`bsp`、`protocol` 和 `sensors`。
+- `sensor_hub_app_init()` 完成 ICM42688 软复位、`WHO_AM_I=0x47` 检查、accel/gyro 100 Hz ODR 配置和工作模式使能。
+- `sensor_hub_app_poll()` 负责 500 ms LED 心跳、1 Hz heartbeat 帧、100 Hz IMU burst read 和 `sensor_imu` 帧发送。
+- ICM42688 初始化或读取失败时，当前回退到 Mock IMU 并通过 heartbeat `status_flags` 暴露状态。
+
 构建系统选型记录见 `docs/adr/0001-use-cmake.md`。
 配置格式选型记录见 `docs/adr/0002-use-simple-key-value-config.md`。
 Runtime 服务架构记录见 `docs/adr/0003-runtime-service-architecture.md`。
@@ -236,7 +252,7 @@ F407 Cube 源码与 CMake 构建边界见 `docs/adr/0008-f407-cube-source-and-cm
 - 能使用 GNU Arm Embedded Toolchain 编译并链接 F407 最小固件
 - 能生成 ELF、HEX、BIN、map 和 size 输出
 - F407 固件能通过 USART1 构建 heartbeat 和 IMU 上报链路
-- F407 固件能通过 UART Bootloader 烧录、回读校验，并在 PC 侧抓取 1 Hz heartbeat 和 10 Hz IMU 帧
+- F407 固件能通过 UART Bootloader 烧录、回读校验，并在 PC 侧抓取 1 Hz heartbeat 和 IMU 帧
 - F407 固件能通过 I2C2 初始化 ICM42688，读取 100 Hz accel/gyro/temp 数据并打包为 `sensor_imu` 帧；若 I2C 初始化或读取失败，回退 Mock IMU 并通过 heartbeat `status_flags` 标记。当前已通过 `status_flags=0x0001` 的串口抓包确认真实 ICM42688 数据路径。
 - 文件不存在时返回非 0 并输出错误日志
 
@@ -250,5 +266,9 @@ F407 Cube 源码与 CMake 构建边界见 `docs/adr/0008-f407-cube-source-and-cm
 - 当前 MP157 Runtime 仍从 mock frame 文件读取 MCU 数据；F407 板上固件已能通过 USART1 输出 heartbeat 和真实 ICM42688 IMU 帧，但尚未接入 MP157 的真实 `/dev/tty*` 输入
 - 当前 ICM42688 I2C 固件路径已实现，并在修正 SCL/SDA 接线后完成 F407 上板串口抓包验证
 - F407 USART1 和 HAL BSP 已接入，并已在 PC 侧通过 CH340 抓取验证二进制帧
+- 当前 100 Hz IMU 上报版本已完成上板抓包验证，5 秒抓取 IMU 501 帧，`imu_rate_hz=100.2`
+- ICM42688 INT1 当前只作为普通输入封装，尚未配置传感器数据就绪中断和 EXTI 驱动
+- ICM42688 FIFO 当前未启用；固件直接按周期 burst 读取最新样本
+- I2C 瞬时错误后的恢复策略仍较简单，当前会回退 Mock IMU 并通过 heartbeat `status_flags` 标记
 - STM32CubeProgrammer 已安装；当前烧录流程采用仓库自带 UART Bootloader 脚本来控制一键下载电路时序，ST-LINK 未接入
 - 当前 Runtime Manager 仍是顺序运行模型，尚未实现并发、健康检查或服务状态输出

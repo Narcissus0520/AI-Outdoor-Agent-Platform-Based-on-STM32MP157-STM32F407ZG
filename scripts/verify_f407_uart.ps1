@@ -1,6 +1,7 @@
 param(
     [string]$PortName = "COM3",
-    [int]$Seconds = 5
+    [int]$Seconds = 5,
+    [int]$MinImuHz = 80
 )
 
 $ErrorActionPreference = "Stop"
@@ -109,6 +110,9 @@ while ($offset -le ($data.Length - 10)) {
 
 $heartbeatCount = @($frames | Where-Object { $_.Type -eq "0x01" }).Count
 $imuCount = @($frames | Where-Object { $_.Type -eq "0x11" }).Count
+$frameRateHz = if ($Seconds -gt 0) { [math]::Round($frames.Count / $Seconds, 2) } else { 0 }
+$imuRateHz = if ($Seconds -gt 0) { [math]::Round($imuCount / $Seconds, 2) } else { 0 }
+$minImuFrames = [math]::Max(1, $Seconds * $MinImuHz)
 $lastHeartbeat = @($frames | Where-Object { $_.Type -eq "0x01" } | Select-Object -Last 1)
 $lastHeartbeatStatusFlags = if ($lastHeartbeat.Count -gt 0 -and $null -ne $lastHeartbeat[0].HeartbeatStatusFlags) {
     "0x{0:X4}" -f $lastHeartbeat[0].HeartbeatStatusFlags
@@ -121,12 +125,14 @@ Write-Host "bytes_read=$($data.Length)"
 Write-Host "frames=$($frames.Count)"
 Write-Host "heartbeat=$heartbeatCount"
 Write-Host "imu=$imuCount"
+Write-Host "frame_rate_hz=$frameRateHz"
+Write-Host "imu_rate_hz=$imuRateHz"
 Write-Host "crc_bad=$badCrc"
 Write-Host "last_heartbeat_status_flags=$lastHeartbeatStatusFlags"
 Write-Host "preview_hex=$preview"
 Write-Host "first_frames:"
 $frames | Select-Object -First 10 | Format-Table -AutoSize
 
-if ($frames.Count -eq 0 -or $badCrc -ne 0 -or $heartbeatCount -lt 1 -or $imuCount -lt 5) {
+if ($frames.Count -eq 0 -or $badCrc -ne 0 -or $heartbeatCount -lt 1 -or $imuCount -lt $minImuFrames) {
     exit 1
 }

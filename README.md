@@ -36,7 +36,7 @@ STM32CubeMX 生成的基础工程位于：
 f407/sensor-hub/firmware/stm32cube/
 ```
 
-仓库已使用 `arm-none-eabi-gcc` 和 CMake 独立生成 F407 的 ELF/HEX/BIN/map，不依赖 Keil 工程完成编译。当前固件包含 PF9 LED 心跳，并已在 F407 板上通过 USART1 PA9/PA10、115200 8N1 验证 heartbeat 和 IMU 二进制帧上报。F407 已配置 ICM42688 相关管脚：PB10 (`I2C2_SCL`)、PB11 (`I2C2_SDA`)、PB12 (`ICM42688_INT1`)；ICM42688 I2C 读取路径已在修正 SCL/SDA 接线后完成上板验证，5 秒抓取结果为 55 帧、heartbeat 5 帧、IMU 50 帧、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。MP157 侧 `/dev/tty*` 串口输入仍待接入，下一步目标是完成 F407 -> MP157 板间联调。
+仓库已使用 `arm-none-eabi-gcc` 和 CMake 独立生成 F407 的 ELF/HEX/BIN/map，不依赖 Keil 工程完成编译。当前固件包含 PF9 LED 心跳，并已在 F407 板上通过 USART1 PA9/PA10、115200 8N1 验证 heartbeat 和 IMU 二进制帧上报。F407 已配置 ICM42688 相关管脚：PB10 (`I2C2_SCL`)、PB11 (`I2C2_SDA`)、PB12 (`ICM42688_INT1`)；ICM42688 I2C 读取路径已在修正 SCL/SDA 接线后完成上板验证。当前固件将 ICM42688 accel/gyro ODR 配置为 100 Hz，并按 10 ms 周期读取和上报 IMU 帧；100 Hz 版本已完成上板抓包验证，5 秒抓取 506 帧、heartbeat 5 帧、IMU 501 帧、`imu_rate_hz=100.2`、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。MP157 侧 `/dev/tty*` 串口输入仍待接入，下一步目标是先补齐 F407 Sensor Hub 侧剩余工程项，再进入 F407 -> MP157 板间联调。
 
 详细步骤见 [F407 固件构建计划](docs/stage1_bringup_plan.md)。
 

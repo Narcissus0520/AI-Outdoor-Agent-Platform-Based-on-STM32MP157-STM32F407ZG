@@ -70,10 +70,44 @@ cmake --build f407/sensor-hub/firmware/build
 
 - 每 500 ms 翻转 PF9 (`LED0`)。
 - 每 1000 ms 通过 USART1 发送 heartbeat。
-- 每 100 ms 读取 ICM42688 并通过 USART1 发送一帧 IMU；若 ICM42688 初始化或读取失败，则回退到 Mock IMU。
+- 每 10 ms 读取 ICM42688 并通过 USART1 发送一帧 IMU，目标采样/上报频率为 100 Hz；若 ICM42688 初始化或读取失败，则回退到 Mock IMU。
 - 串口输出是二进制 MCU 协议，不是可读文本。
 
-USART1 heartbeat 和 IMU 帧已通过 F407 上板串口抓包验证；ICM42688 I2C 数据源已在修正 SCL/SDA 接线后通过上板验证，heartbeat `status_flags=0x0001` 表示当前 IMU 帧来自真实 ICM42688。
+USART1 heartbeat 和 IMU 帧已通过 F407 上板串口抓包验证；ICM42688 I2C 数据源已在修正 SCL/SDA 接线后通过上板验证，heartbeat `status_flags=0x0001` 表示当前 IMU 帧来自真实 ICM42688。当前 100 Hz 版本也已通过上板抓包确认。
+
+## 上电时序与工作流程
+
+硬件上电前确认：
+
+- F407、ICM42688 和串口调试器/后续 MP157 共地。
+- ICM42688 `VCC` 为 3.3 V，`AD0` 固定接 3.3 V，对应 7-bit I2C 地址 `0x69`。
+- ICM42688 `SCL -> PB10`、`SDA -> PB11`，与 CubeMX `I2C2_SCL/I2C2_SDA` 配置一致。
+- I2C SCL/SDA 需要上拉到 3.3 V；若模块板没有板载上拉，建议外接 4.7k 到 10k。
+- `INT1 -> PB12` 当前仅作为普通输入预留，固件尚未依赖 INT1 数据就绪中断。
+
+正常上电运行流程：
+
+1. F407 复位启动，执行 CubeMX 生成的 `HAL_Init()`、系统时钟、GPIO、I2C2 和 USART1 初始化。
+2. `main()` 进入项目 USER CODE 区域，调用 `sensor_hub_app_init()`。
+3. `sensor_hub_app_init()` 初始化 Mock IMU fallback，并执行 ICM42688 初始化：
+   - 选择 register bank 0。
+   - 写 `DEVICE_CONFIG=0x01` 触发软复位，并等待约 100 ms。
+   - 读取 `WHO_AM_I`，期望值为 `0x47`。
+   - 配置 accel ±4 g、gyro ±1000 dps，并把 accel/gyro ODR 都配置为 100 Hz。
+   - 写 `PWR_MGMT0` 使能 accel/gyro 工作模式。
+   - 初始化成功时设置 heartbeat `status_flags=0x0001`。
+4. 主循环持续调用 `sensor_hub_app_poll()`：
+   - PF9 LED 每 500 ms 翻转一次，作为应用存活指示。
+   - 每 1000 ms 发送一帧 heartbeat。
+   - 每 10 ms 从 ICM42688 连续读取 `TEMP_DATA1` 起始的 14 字节样本，换算为协议定点值并发送 `sensor_imu` 帧。
+5. 如果 ICM42688 初始化或读取失败，固件回退到 Mock IMU 数据源，并将 heartbeat `status_flags` 设置为 `0x0006`（fallback + error）。
+
+烧录/验证时序：
+
+1. `scripts/flash_f407_uart.ps1` 通过一键下载电路控制 DTR/RTS，使 F407 进入 STM32 ROM UART Bootloader。
+2. 脚本写入 `sensor_hub.bin` 到 `0x08000000`，并执行逐字节回读校验。
+3. `scripts/verify_f407_uart.ps1` 触发应用态复位，按 115200 8N1 抓取 USART1 二进制帧。
+4. 如果刚刷写后第一次抓包读到 0 字节，通常是应用态复位状态未切换到位；再次运行验证脚本或手动复位后复测。
 
 ICM42688 接线要求：
 
@@ -95,7 +129,7 @@ F407 PA10 (USART1_RX) <- MP157 UART_TX  # 当前上报测试可暂不连接
 F407 GND               - MP157 GND
 ```
 
-当前已通过 CH340 `COM3` 完成 UART Bootloader 烧录和串口抓包验证：
+上一版 10 Hz 固件已通过 CH340 `COM3` 完成 UART Bootloader 烧录和串口抓包验证：
 
 - 5 秒抓取 55 帧。
 - heartbeat 5 帧。
@@ -103,11 +137,19 @@ F407 GND               - MP157 GND
 - CRC 错误 0 帧。
 - 最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 ready。
 
+当前 100 Hz 版本上板验证结果：
+
+- 5 秒抓取 506 帧。
+- heartbeat 5 帧。
+- IMU 501 帧，`imu_rate_hz=100.2`。
+- CRC 错误 0 帧。
+- 最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 ready。
+
 可复现命令：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3
-powershell -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5
+powershell -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5 -MinImuHz 80
 ```
 
 如果 Bootloader 因读保护返回 NACK，可在确认会擦除用户 Flash 后追加 `-ReadoutUnprotectFirst`。

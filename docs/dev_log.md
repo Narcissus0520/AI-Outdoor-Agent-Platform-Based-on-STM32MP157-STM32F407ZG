@@ -1,5 +1,38 @@
 # Dev Log
 
+## 2026-06-19 - F407 100 Hz IMU Sampling Target
+
+### 本次完成
+
+- 将 F407 `sensor_hub_app_poll()` 的 IMU 读取和上报周期从 100 ms 调整为 10 ms，对齐 ICM42688 accel/gyro 100 Hz ODR 配置。
+- 增强 `scripts/verify_f407_uart.ps1`，输出 `frame_rate_hz` 和 `imu_rate_hz`，并新增 `-MinImuHz` 参数；默认要求 IMU 帧率不低于 80 Hz。
+- 复盘 F407 与 ICM42688 之间尚未完成的 Sensor Hub 项：INT1/EXTI、I2C 错误恢复、FIFO、UART DMA/环形缓冲、PC mock C++ 占位接口清理。
+- 补充 F407/ICM42688 上电时序、初始化寄存器流程、运行工作流和 UART Bootloader 烧录/验证流程文档。
+
+### 验证结果
+
+- 已执行 100 Hz 上板验证：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5 -MinImuHz 80
+```
+
+- F407 固件构建成功，Debug 固件使用 10176 B Flash、1768 B RAM。
+- UART Bootloader 识别成功：Bootloader version `0x31`，Chip ID `0x0413`。
+- 固件写入和逐字节回读校验成功。
+- 第一次抓包读到 0 字节，重新触发应用复位后恢复正常输出。
+- 第二次 5 秒读取 17132 字节，共解析 506 帧。
+- heartbeat：5 帧。
+- IMU：501 帧。
+- `imu_rate_hz=100.2`。
+- CRC 错误：0 帧。
+- 最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 ready，IMU 帧来自真实 ICM42688 数据路径。
+
+### 后续 TODO
+
+- 在进入 F407 -> MP157 联调前，决定 INT1/EXTI、I2C 错误恢复和 UART 发送方式是否需要先补齐。
+
 ## 2026-06-19 - ICM42688 I2C Firmware Data Source
 
 ### 本次完成

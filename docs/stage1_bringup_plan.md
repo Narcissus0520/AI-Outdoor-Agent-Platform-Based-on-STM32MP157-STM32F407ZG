@@ -99,7 +99,7 @@ CubeMX 重新生成时，只允许更新 `firmware/stm32cube/`。业务代码不
 - [ ] 使用 MP157 Runtime 验证真实串口链路
 - [ ] 根据测量结果再决定是否引入 DMA 发送队列
 
-当前验收：F407 每 1000 ms 输出 heartbeat、每 100 ms 输出 IMU 帧。修正 ICM42688 SCL/SDA 接线后，PC 端 5 秒抓取 55 帧、heartbeat 5 帧、IMU 50 帧、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。MP157 Runtime 真实串口输入仍待实现。
+当前验收：F407 每 1000 ms 输出 heartbeat、每 10 ms 输出 IMU 帧。修正 ICM42688 SCL/SDA 接线后已完成真实 ICM42688 上板验证；当前 100 Hz 版本 5 秒抓取 506 帧、heartbeat 5 帧、IMU 501 帧、`imu_rate_hz=100.2`、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。MP157 Runtime 真实串口输入仍待实现。
 
 上板验证环境：
 
@@ -120,6 +120,31 @@ F407 GND               - MP157 GND
 
 仅验证单向上报时，可以只连接 PA9、MP157 RX 和公共 GND。两端必须使用 3.3 V TTL 电平。
 
+### 当前上电时序与运行流程
+
+上电前硬件状态：
+
+- F407、ICM42688 和串口调试器/后续 MP157 必须共地。
+- ICM42688 `VCC=3.3V`，`AD0=3.3V`，对应 I2C 7-bit 地址 `0x69`。
+- ICM42688 `SCL -> PB10`、`SDA -> PB11`、`INT1 -> PB12`，其中 PB12 当前只作为普通输入预留。
+- I2C SCL/SDA 需要上拉到 3.3 V；模块板若没有板载上拉，建议外接 4.7k 到 10k。
+
+固件启动流程：
+
+1. F407 复位后先执行 CubeMX 生成的 HAL、时钟、GPIO、I2C2、USART1 初始化。
+2. `main()` 调用 `sensor_hub_app_init()`，项目业务逻辑开始接管 Sensor Hub。
+3. `sensor_hub_app_init()` 初始化 Mock IMU fallback，并对 ICM42688 执行 bank 0 选择、软复位、`WHO_AM_I=0x47` 检查、accel/gyro 量程和 100 Hz ODR 配置、`PWR_MGMT0` 使能。
+4. 初始化成功后 heartbeat `status_flags=0x0001`；初始化失败则进入 Mock fallback，`status_flags=0x0006`。
+5. `sensor_hub_app_poll()` 在主循环中持续运行：PF9 每 500 ms 翻转，heartbeat 每 1000 ms 发送，IMU 每 10 ms 读取 ICM42688 并发送 `sensor_imu` 帧。
+6. 若运行中 I2C 读取失败，当前策略是立即回退 Mock IMU 并设置 fallback/error 标志；后续需要补充自动重新初始化策略。
+
+烧录/验证流程：
+
+1. `flash_f407_uart.ps1` 通过一键下载电路控制 DTR/RTS 进入 STM32 ROM UART Bootloader。
+2. 写入 `sensor_hub.bin` 到 `0x08000000`，并执行逐字节回读校验。
+3. `verify_f407_uart.ps1` 触发应用态复位，抓取 USART1 二进制帧并统计 heartbeat、IMU、CRC 和 `status_flags`。
+4. 若刷写后第一次抓包为 0 字节，重新运行验证脚本或手动复位；该现象来自一键下载电路应用态复位状态切换。
+
 ### Step 6：ICM42688 I2C 接入
 
 - [x] 在 CubeMX 中配置 PB10 为 `I2C2_SCL`
@@ -130,6 +155,8 @@ F407 GND               - MP157 GND
 - [x] 移植 ICM42688 `WHO_AM_I`、100 Hz accel/gyro 配置和数据读取逻辑
 - [x] F407 IMU 上报优先使用 ICM42688，失败时回退 Mock IMU 并设置 heartbeat `status_flags`
 - [x] 修正实际接线为 `SCL -> PB10`、`SDA -> PB11` 后，上板验证真实 ICM42688 IMU 数据路径
+- [x] 将 F407 侧 ICM42688 读取和 IMU 帧上报周期调整为 100 Hz
+- [x] 上板复测 100 Hz IMU 输出，5 秒抓取 heartbeat 5 帧、IMU 501 帧、`imu_rate_hz=100.2`、CRC 错误 0 帧
 
 当前接线要求：
 
@@ -143,9 +170,26 @@ ICM42688 GND  -> F407 GND
 
 若接成 `SDA -> PB10`、`SCL -> PB11`，则与当前 CubeMX 配置相反，I2C 无法通信。此前错误模块资料不再作为实现依据。
 
-验收结果：修正接线后通过 UART Bootloader 刷写 `sensor_hub.bin`，PC 端 5 秒抓取 55 帧、heartbeat 5 帧、IMU 50 帧、CRC 错误 0 帧；最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 初始化和读取成功。
+上一版 10 Hz 验收结果：修正接线后通过 UART Bootloader 刷写 `sensor_hub.bin`，PC 端 5 秒抓取 55 帧、heartbeat 5 帧、IMU 50 帧、CRC 错误 0 帧；最后一帧 heartbeat `status_flags=0x0001`，表示 ICM42688 初始化和读取成功。
 
-### Step 7：MP157 Live Serial Integration
+100 Hz 验证命令和结果：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5 -MinImuHz 80
+```
+
+验证结果：5 秒读取 17132 字节，共解析 506 帧；heartbeat 5 帧；IMU 501 帧；`imu_rate_hz=100.2`；CRC 错误 0 帧；最后一帧 heartbeat `status_flags=0x0001`。
+
+### Step 7：F407 Sensor Hub 完成项
+
+- [ ] 决定是否将 PB12 `ICM42688_INT1` 从普通输入升级为 EXTI 数据就绪中断；当前固件按 10 ms 周期轮询读取。
+- [ ] 增加 I2C 瞬时错误后的 ICM42688 重新初始化/恢复策略；当前策略是回退 Mock IMU 并通过 heartbeat `status_flags` 标记。
+- [ ] 评估是否需要 ICM42688 FIFO；当前直接从 `TEMP_DATA1` 连续读取最新 14 字节样本。
+- [ ] 评估是否需要 UART DMA 或环形缓冲；当前 100 Hz IMU 帧带宽仍低于 115200 8N1 能力，但发送方式仍为阻塞式 `HAL_UART_Transmit()`。
+- [ ] 清理 PC mock C++ 层 `Icm42688Driver` 占位接口，避免与真实 F407 固件数据源混淆。
+
+### Step 8：MP157 Live Serial Integration
 
 - [ ] 在 MP157 Runtime 新增真实 MCU 串口输入路径，默认保留 mock 文件模式
 - [ ] 新增配置项：`mcu_input_mode = mock_file | serial`

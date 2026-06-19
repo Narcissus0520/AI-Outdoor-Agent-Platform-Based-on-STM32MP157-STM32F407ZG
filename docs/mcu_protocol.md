@@ -1,6 +1,6 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 USART1 PA9、115200 8N1 发送 heartbeat 和 IMU 二进制帧；F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。MP157 Runtime 的协议解析已存在，但真实 Linux 串口输入源和板间联调尚未完成。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 USART1 PA9、115200 8N1 发送 heartbeat 和 IMU 二进制帧；F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。当前 IMU 帧目标频率为 100 Hz，MP157 Runtime 的协议解析已存在，但真实 Linux 串口输入源和板间联调尚未完成。
 
 串口上传输的是连续二进制帧，不附加换行符，也不转换为十六进制文本。
 
