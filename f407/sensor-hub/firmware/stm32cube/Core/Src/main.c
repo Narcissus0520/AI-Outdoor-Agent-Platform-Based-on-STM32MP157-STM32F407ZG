@@ -90,6 +90,7 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C2_Init();
   MX_USART1_UART_Init();
+  MX_UART4_Init();
   /* USER CODE BEGIN 2 */
   g_last_led_toggle_ms = HAL_GetTick();
   sensor_hub_app_init();

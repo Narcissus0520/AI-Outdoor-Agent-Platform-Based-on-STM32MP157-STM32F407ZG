@@ -6,11 +6,13 @@
 #include "services/gnss_replay_service.h"
 #include "services/icm20608_service.h"
 #include "services/mcu_mock_service.h"
+#include "services/mcu_serial_service.h"
 #include "sensors/board_imu_status.h"
 #include "sensors/icm20608_char_reader.h"
 #include "sensors/icm20608_iio_reader.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -27,7 +29,10 @@ void printUsage(const char* programName)
 {
     std::cout << "Usage: " << programName << " [nmea_file]\n"
               << "       " << programName
-              << " [--config path] [--input path] [--mcu-mock-input path] [--status-output path]"
+              << " [--config path] [--input path] [--mcu-input-mode mock_file|serial]"
+              << " [--mcu-mock-input path] [--mcu-serial-device path]"
+              << " [--mcu-serial-baud baud] [--mcu-serial-capture-seconds seconds]"
+              << " [--status-output path]"
               << " [--board-imu] [--board-imu-source char_device|iio|auto]"
               << " [--board-imu-device-path path] [--board-imu-iio-path path] [--board-imu-samples count]"
               << " [--log-level debug|info|warn|error]\n";
@@ -68,7 +73,11 @@ int main(int argc, char* argv[])
 
     std::string configPath = kDefaultConfigFile;
     std::string cliInputPath;
+    std::string cliMcuInputMode;
     std::string cliMcuMockInputPath;
+    std::string cliMcuSerialDevice;
+    std::string cliMcuSerialBaud;
+    std::string cliMcuSerialCaptureSeconds;
     std::string cliLogLevel;
     std::string cliStatusOutputPath;
     bool cliEnableBoardImu = false;
@@ -102,6 +111,30 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliMcuMockInputPath = argv[++index];
+        } else if (arg == "--mcu-input-mode") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--mcu-input-mode requires mock_file or serial");
+                return 1;
+            }
+            cliMcuInputMode = argv[++index];
+        } else if (arg == "--mcu-serial-device") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--mcu-serial-device requires a device path");
+                return 1;
+            }
+            cliMcuSerialDevice = argv[++index];
+        } else if (arg == "--mcu-serial-baud") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--mcu-serial-baud requires a baud rate");
+                return 1;
+            }
+            cliMcuSerialBaud = argv[++index];
+        } else if (arg == "--mcu-serial-capture-seconds") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--mcu-serial-capture-seconds requires seconds");
+                return 1;
+            }
+            cliMcuSerialCaptureSeconds = argv[++index];
         } else if (arg == "--status-output") {
             if (index + 1 >= argc) {
                 outdoor::log::Logger::error("--status-output requires a file path");
@@ -167,6 +200,36 @@ int main(int argc, char* argv[])
         config.mcuMockInputPath = cliMcuMockInputPath;
     }
 
+    if (!cliMcuInputMode.empty()) {
+        if (cliMcuInputMode != "mock_file" && cliMcuInputMode != "serial") {
+            outdoor::log::Logger::error("Unsupported --mcu-input-mode value: " + cliMcuInputMode);
+            return 1;
+        }
+        config.mcuInputMode = cliMcuInputMode;
+    }
+
+    if (!cliMcuSerialDevice.empty()) {
+        config.mcuSerialDevice = cliMcuSerialDevice;
+    }
+
+    if (!cliMcuSerialBaud.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliMcuSerialBaud, parsed)) {
+            outdoor::log::Logger::error("Unsupported --mcu-serial-baud value: " + cliMcuSerialBaud);
+            return 1;
+        }
+        config.mcuSerialBaud = static_cast<std::uint32_t>(parsed);
+    }
+
+    if (!cliMcuSerialCaptureSeconds.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliMcuSerialCaptureSeconds, parsed)) {
+            outdoor::log::Logger::error("Unsupported --mcu-serial-capture-seconds value: " + cliMcuSerialCaptureSeconds);
+            return 1;
+        }
+        config.mcuSerialCaptureSeconds = static_cast<std::uint32_t>(parsed);
+    }
+
     if (!cliStatusOutputPath.empty()) {
         config.statusOutputPath = cliStatusOutputPath;
     }
@@ -219,7 +282,11 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("Config file: " + configPath);
     outdoor::log::Logger::info(std::string("Log level: ") + outdoor::log::logLevelToString(config.logLevel));
     outdoor::log::Logger::info("Input source: " + config.nmeaInputPath);
+    outdoor::log::Logger::info("MCU input mode: " + config.mcuInputMode);
     outdoor::log::Logger::info("MCU mock input source: " + config.mcuMockInputPath);
+    outdoor::log::Logger::info("MCU serial device: " + config.mcuSerialDevice);
+    outdoor::log::Logger::info("MCU serial baud: " + std::to_string(config.mcuSerialBaud));
+    outdoor::log::Logger::info("MCU serial capture seconds: " + std::to_string(config.mcuSerialCaptureSeconds));
     outdoor::log::Logger::info(std::string("Board IMU enabled: ") + (config.boardImuEnabled ? "true" : "false"));
     outdoor::log::Logger::info("Board IMU source: " + config.boardImuSource);
     outdoor::log::Logger::info("Board IMU character device path: " + config.boardImuDevicePath);
@@ -233,7 +300,15 @@ int main(int argc, char* argv[])
     boardImuStatus.source = config.boardImuSource == "iio" ? "icm20608_iio" : "icm20608_char";
     boardImuStatus.devicePath = config.boardImuSource == "iio" ? config.boardImuIioPath : config.boardImuDevicePath;
     runtime.addService(std::make_unique<outdoor::services::GnssReplayService>(config.nmeaInputPath));
-    runtime.addService(std::make_unique<outdoor::services::McuMockService>(config.mcuMockInputPath, mcuStatus));
+    if (config.mcuInputMode == "serial") {
+        runtime.addService(std::make_unique<outdoor::services::McuSerialService>(
+            config.mcuSerialDevice,
+            config.mcuSerialBaud,
+            config.mcuSerialCaptureSeconds,
+            mcuStatus));
+    } else {
+        runtime.addService(std::make_unique<outdoor::services::McuMockService>(config.mcuMockInputPath, mcuStatus));
+    }
     if (config.boardImuEnabled) {
         runtime.addService(std::make_unique<outdoor::services::Icm20608Service>(
             config.boardImuSource,

@@ -43,6 +43,7 @@ try {
         "src\log\logger.cpp" `
         "src\mcu\imu_payload_parser.cpp" `
         "src\mcu\mcu_frame_parser.cpp" `
+        "src\mcu\mcu_frame_stream_decoder.cpp" `
         "src\mcu\mcu_protocol.cpp" `
         "src\mcu\mcu_status.cpp" `
         "src\runtime\runtime_manager.cpp" `
@@ -52,6 +53,7 @@ try {
         "src\services\gnss_replay_service.cpp" `
         "src\services\icm20608_service.cpp" `
         "src\services\mcu_mock_service.cpp" `
+        "src\services\mcu_serial_service.cpp" `
         -o $output
 
     $defaultOutput = & $output --config "config\runtime.conf" --status-output $statusOutput --log-level debug 2>&1

@@ -22,10 +22,11 @@
 - 生成代码：HSI + PLL 168 MHz，PF9/PF10 LED GPIO
 - 已包含：Core、HAL、CMSIS、`.ioc` 和 MDK-ARM 工程
 - 已包含：GNU 启动、链接脚本、仓库固件 CMake、HEX/BIN/map 产物生成
-- 已包含：USART1 PA9/PA10、115200 8N1 和阻塞式 HAL UART 发送
+- 已包含：USART1 PA9/PA10、115200 8N1 作为 UART Bootloader 下载口
+- 已包含：UART4 PC10/PC11、115200 8N1 和阻塞式 HAL UART 发送，作为 F407 与 MP157 的专用板间通信口
 - 已包含：ICM42688 I2C2 PB10/PB11、INT1 PB12、I2C BSP、ICM42688 寄存器读取和 Mock IMU 兜底
 - 已包含：修正接线后的 ICM42688 真实读数上板验证
-- 未包含：MP157 Linux 真实串口输入和 F407 -> MP157 板间联调
+- 已包含：MP157 Linux 真实串口输入和 F407 UART4 -> MP157 USART3 板间联调
 - 当前开发环境：GNU Arm Embedded Toolchain 14.2.Rel1、CMake 和 Ninja
 
 Cube 生成代码与项目代码的边界见 `docs/adr/0008-f407-cube-source-and-cmake-build-boundary.md`。
@@ -92,33 +93,44 @@ CubeMX 重新生成时，只允许更新 `firmware/stm32cube/`。业务代码不
 
 ### Step 5：UART 与协议链路
 
-- [x] 在 `.ioc` 中配置 USART1、PA9/PA10 和 115200 8N1
-- [x] 使用阻塞式 `HAL_UART_Transmit()` 实现 `board_uart_send_bytes()`
+- [x] 在 `.ioc` 中配置 USART1、PA9/PA10 和 115200 8N1，用于 UART Bootloader 下载
+- [x] 在 `.ioc` 中配置 UART4、PC10/PC11 和 115200 8N1，用于 MP157 板间通信
+- [x] 使用阻塞式 `HAL_UART_Transmit()` 实现 `board_uart_send_bytes()`，当前绑定 UART4
 - [x] 串口抓取 heartbeat 和 Mock IMU 帧
 - [x] 使用 `scripts/verify_f407_uart.ps1` 验证帧内容和 CRC
-- [ ] 使用 MP157 Runtime 验证真实串口链路
+- [x] 使用 MP157 Runtime 验证真实串口链路
 - [ ] 根据测量结果再决定是否引入 DMA 发送队列
 
-当前验收：F407 每 1000 ms 输出 heartbeat、每 10 ms 输出 IMU 帧。修正 ICM42688 SCL/SDA 接线后已完成真实 ICM42688 上板验证；当前 100 Hz 版本 5 秒抓取 506 帧、heartbeat 5 帧、IMU 501 帧、`imu_rate_hz=100.2`、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。MP157 Runtime 真实串口输入仍待实现。
+当前验收：F407 每 1000 ms 输出 heartbeat、每 10 ms 输出 IMU 帧。修正 ICM42688 SCL/SDA 接线后已完成真实 ICM42688 上板验证；100 Hz 版本历史 PC 侧 5 秒抓取 506 帧、heartbeat 5 帧、IMU 501 帧、`imu_rate_hz=100.2`、CRC 错误 0 帧，最后 heartbeat `status_flags=0x0001`。当前应用态输出已切换到 UART4，并已通过 MP157 Runtime serial 模式完成上板验证。
 
 上板验证环境：
 
-- 烧录链路：CH340 `COM3`，STM32 ROM UART Bootloader。
+- 烧录链路：F407 USB-UART `COM6`，STM32 ROM UART Bootloader，使用 USART1 PA9/PA10。
+- MP157 console：CH340 `COM3`。
 - Programmer：用户已安装 STM32CubeProgrammer，CLI 路径为 `D:\Program Files (x86)\ST\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe`；当前仓库脚本直接实现 Bootloader 协议，以便精确控制一键下载电路的 DTR/RTS 时序。
 - Bootloader 识别结果：ACK `0x79`，Bootloader version `0x31`，chip ID `0x0413`。
-- 烧录命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3`。
-- 验证命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5`。
+- 烧录命令：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM6`。
+- 当前应用态协议帧不再从 COM6 输出；真实链路验证在 MP157 `/dev/ttySTM1` 上完成。
 - 若 Bootloader 因读保护导致擦写命令返回 NACK，再追加 `-ReadoutUnprotectFirst`；该操作会擦除用户 Flash。
 
-当前串口接线：
+当前 F407 与 MP157 板间串口接线：
 
 ```text
-F407 PA9  (USART1_TX) -> MP157 UART_RX
-F407 PA10 (USART1_RX) <- MP157 UART_TX
-F407 GND               - MP157 GND
+F407 PC10 (UART4_TX) -> MP157 PD9 (USART3_RX, /dev/ttySTM1)
+F407 PC11 (UART4_RX) <- MP157 PD8 (USART3_TX)
+F407 GND              - MP157 GND
 ```
 
-仅验证单向上报时，可以只连接 PA9、MP157 RX 和公共 GND。两端必须使用 3.3 V TTL 电平。
+USART1 PA9/PA10 只保留给 F407 USB 下载/Bootloader，不再作为 F407 与 MP157 的应用通信口。两端必须使用 3.3 V TTL 电平。
+
+2026-06-20 UART4 -> MP157 USART3 验证结果：
+
+- F407 固件构建通过，`sensor_hub.bin` 大小 10320 B。
+- 通过 `COM6` 执行 UART Bootloader 烧录和逐字节回读校验成功，Bootloader version `0x31`，chip ID `0x0413`。
+- MP157 console 使用 `COM3`，确认 `/dev/ttySTM1` 存在，对应 USART3。
+- 在 MP157 上执行 `stty -F /dev/ttySTM1 115200 raw -echo -ixon -ixoff -crtscts` 后，`dd if=/dev/ttySTM1 bs=1 count=512 | hexdump -C` 可看到连续 `a5 5a` MCU 帧头。
+- 部署 ARM 版 `outdoor_core_runtime` 到 `/tmp/ai_outdoor_runtime_serial`，运行 serial 模式 5 秒后，`runtime/runtime_status.json` 输出 `mcu.heartbeat_seen=true`、`mcu.imu_seen=true`、`mcu.status_flags=1`、`imu.seen=true`。
+- 本次样例末帧 `last_sequence=16835`，IMU 样例约为 `accel=(-0.577, -0.043, 0.817) g`、`gyro=(-0.610, -0.274, 0.000) dps`、`temperature=24.970°C`。
 
 ### 当前上电时序与运行流程
 
@@ -131,7 +143,7 @@ F407 GND               - MP157 GND
 
 固件启动流程：
 
-1. F407 复位后先执行 CubeMX 生成的 HAL、时钟、GPIO、I2C2、USART1 初始化。
+1. F407 复位后先执行 CubeMX 生成的 HAL、时钟、GPIO、I2C2、USART1 和 UART4 初始化。
 2. `main()` 调用 `sensor_hub_app_init()`，项目业务逻辑开始接管 Sensor Hub。
 3. `sensor_hub_app_init()` 初始化 Mock IMU fallback，并对 ICM42688 执行 bank 0 选择、软复位、`WHO_AM_I=0x47` 检查、accel/gyro 量程和 100 Hz ODR 配置、`PWR_MGMT0` 使能。
 4. 初始化成功后 heartbeat `status_flags=0x0001`；初始化失败则进入 Mock fallback，`status_flags=0x0006`。
@@ -142,7 +154,7 @@ F407 GND               - MP157 GND
 
 1. `flash_f407_uart.ps1` 通过一键下载电路控制 DTR/RTS 进入 STM32 ROM UART Bootloader。
 2. 写入 `sensor_hub.bin` 到 `0x08000000`，并执行逐字节回读校验。
-3. `verify_f407_uart.ps1` 触发应用态复位，抓取 USART1 二进制帧并统计 heartbeat、IMU、CRC 和 `status_flags`。
+3. 当前应用态协议帧通过 UART4 输出到 MP157 USART3；历史 `verify_f407_uart.ps1` 只适用于仍从 USART1 输出协议帧的固件。
 4. 若刷写后第一次抓包为 0 字节，重新运行验证脚本或手动复位；该现象来自一键下载电路应用态复位状态切换。
 
 ### Step 6：ICM42688 I2C 接入
@@ -191,13 +203,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1
 
 ### Step 8：MP157 Live Serial Integration
 
-- [ ] 在 MP157 Runtime 新增真实 MCU 串口输入路径，默认保留 mock 文件模式
-- [ ] 新增配置项：`mcu_input_mode = mock_file | serial`
-- [ ] 新增配置项：`mcu_serial_device = /dev/ttySTM*`
-- [ ] 新增配置项：`mcu_serial_baud = 115200`
-- [ ] 新增配置项：`mcu_serial_capture_seconds = 5`
-- [ ] 将 F407 PA9 (`USART1_TX`) 和 GND 接入 MP157 UART_RX/GND
-- [ ] 在 MP157 上验证 `runtime_status.json` 输出真实 heartbeat 和 IMU 状态
+- [x] 在 MP157 Runtime 新增真实 MCU 串口输入路径，默认保留 mock 文件模式
+- [x] 新增配置项：`mcu_input_mode = mock_file | serial`
+- [x] 新增配置项：`mcu_serial_device = /dev/ttySTM1`
+- [x] 新增配置项：`mcu_serial_baud = 115200`
+- [x] 新增配置项：`mcu_serial_capture_seconds = 5`
+- [x] 将 F407 UART4 PC10/PC11 和 GND 接入 MP157 USART3 PD9/PD8/GND
+- [x] 在 MP157 上验证 `runtime_status.json` 输出真实 heartbeat 和 IMU 状态
 - [ ] 根据实测串口稳定性再评估 UART DMA 发送队列和 Runtime 长期运行模型
 
 ## 暂不处理

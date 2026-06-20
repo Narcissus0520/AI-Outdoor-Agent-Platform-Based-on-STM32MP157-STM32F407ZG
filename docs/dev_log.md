@@ -1,5 +1,96 @@
 # Dev Log
 
+## 2026-06-20 - F407 UART4 to MP157 USART3 Board Validation
+
+### 本次完成
+
+- 将 F407 与 MP157 的对通方案从临时 USART1 旁听方案调整为专用 UART4 方案。
+- F407 USART1 PA9/PA10 继续保留为 USB-UART / STM32 ROM Bootloader 下载口；当前 F407 板卡通过 `COM6` 烧录。
+- 新增 F407 UART4 PC10/PC11 初始化，`board_uart_send_bytes()` 改为通过 `huart4` 发送 Sensor Hub heartbeat 和 IMU 二进制帧。
+- 当前板间接线为：`F407 PC10 UART4_TX -> MP157 PD9 USART3_RX`，`F407 PC11 UART4_RX <- MP157 PD8 USART3_TX`，两板 GND 共地。
+- MP157 console 使用 `COM3`，确认 `/dev/ttySTM1` 存在，对应 USART3。
+- 在 MP157 上通过 `stty` + `dd | hexdump` 抓取 `/dev/ttySTM1`，确认可见连续 `A5 5A` MCU 帧头。
+- 部署当前 ARM 版 `outdoor_core_runtime` 到 `/tmp/ai_outdoor_runtime_serial`，运行 serial 模式完成 F407 -> MP157 最小闭环验证。
+
+### 修改文件
+
+- `README.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/mcu_protocol.md`
+- `docs/project_design.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `f407/sensor-hub/README.md`
+- `f407/sensor-hub/firmware/bsp/stm32/board_uart_stm32.c`
+- `f407/sensor-hub/firmware/stm32cube/atk_f407_sensorhub.ioc`
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/usart.h`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/main.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/stm32f4xx_hal_msp.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/usart.c`
+- `mp157/outdoor-core-service/README.md`
+
+### 验证结果
+
+- `powershell -ExecutionPolicy Bypass -File scripts/build_f407.ps1` 通过，生成 `sensor_hub.bin`，大小 10320 B。
+- `powershell -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM6` 通过，Bootloader version `0x31`，chip ID `0x0413`，逐字节回读校验成功。
+- MP157 `/dev/ttySTM1` 5 秒内读取 512 字节样例，`hexdump` 中可见连续 `a5 5a` MCU 帧头。
+- MP157 Runtime serial 模式运行 5 秒后，`runtime/runtime_status.json` 中 `mcu.heartbeat_seen=true`、`mcu.imu_seen=true`、`mcu.status_flags=1`、`imu.seen=true`。
+- 样例末帧：`last_sequence=16835`，`imu.accel=(-0.577, -0.043, 0.817) g`，`imu.gyro=(-0.610, -0.274, 0.000) dps`，`imu.temperature_celsius=24.970`。
+
+### 问题与解决
+
+- 第一次 MP157 Runtime 部署包只包含可执行文件和配置，缺少 `data/nmea_sample.txt`，导致 `gnss_replay_service` 启动失败，MCU serial 服务未运行。
+- 解决：重新打包部署 `outdoor_core_runtime`、`config/runtime.conf`、`data/nmea_sample.txt` 和 `data/mcu_mock_frames.txt`，板端 SHA256 校验通过后 Runtime serial 验证成功。
+- 第一次 `/dev/ttySTM1` 抓包未读到数据；通过 `COM6` 触发 F407 应用态复位后再次抓包成功。
+
+### 后续 TODO
+
+- 实现 MP157 -> F407 下行命令协议，当前 UART4 RX 已初始化并接线，但固件尚未解析命令。
+- 评估 UART4 发送从阻塞式 `HAL_UART_Transmit()` 演进到 DMA/环形缓冲。
+- 补充长期运行稳定性验证，观察 `/dev/ttySTM1` 连续读取、CRC 错误率和 Runtime 状态刷新。
+
+## 2026-06-20 - MP157 USART3 MCU Serial Input Software Path
+
+### 本次完成
+
+- 按 MP157 USART3 方案新增 F407 -> MP157 live serial 软件路径，默认设备为 `/dev/ttySTM1`。
+- 新增 `mcu_input_mode = mock_file | serial`，默认保持 `mock_file`，避免未接线时影响 PC 开发和自动化测试。
+- 新增 `mcu_serial_device`、`mcu_serial_baud`、`mcu_serial_capture_seconds` 配置项，默认 `/dev/ttySTM1`、`115200`、`5`。
+- 新增 `McuFrameStreamDecoder`，负责从连续串口字节流中重组 MCU 二进制帧，再复用现有 `McuFrameParser` 和 `ImuPayloadParser`。
+- 新增 `McuSerialService`，Linux 目标上使用 termios 配置 raw、115200 8N1、无硬件流控读取 `/dev/ttySTM1`。
+- 新增 decoder 单元测试，覆盖前导噪声、分片帧和连续帧。
+- 文档最初记录临时单向连线：`F407 PA9 USART1_TX -> MP157 PD9 USART3_RX`，以及 `F407 GND -> MP157 GND`；该方案已被后续 UART4 专用板间通信方案替代。
+
+### 修改文件
+
+- `README.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/CMakeLists.txt`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/config/runtime.conf`
+- `mp157/outdoor-core-service/include/config/app_config.h`
+- `mp157/outdoor-core-service/include/mcu/mcu_frame_stream_decoder.h`
+- `mp157/outdoor-core-service/include/services/mcu_serial_service.h`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `mp157/outdoor-core-service/src/config/config_loader.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/src/mcu/mcu_frame_stream_decoder.cpp`
+- `mp157/outdoor-core-service/src/services/mcu_serial_service.cpp`
+- `mp157/outdoor-core-service/tests/mcu_frame_stream_decoder_tests.cpp`
+
+### 验证结果
+
+- 本条记录创建时暂未执行真实 F407 -> MP157 上板验证；后续已在 “F407 UART4 to MP157 USART3 Board Validation” 中完成。
+
+### 后续 TODO
+
+- 临时 PA9 方案已废弃；后续使用 `F407 UART4 PC10/PC11 <-> MP157 USART3 PD9/PD8`。
+- `stty` + `hexdump` 和 Runtime serial 模式验证已完成。
+
 ## 2026-06-19 - MP157 Onboard ICM20608 Service
 
 ### 本次完成
@@ -179,7 +270,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1
 - 完成文档一致性清理后，将当前 F407 + ICM42688 里程碑作为可提交节点固定下来。
 - 在 MP157 Runtime 新增真实 MCU 串口输入路径，复用现有 `McuFrameParser`、`ImuPayloadParser` 和 `runtime_status.json` 输出。
 - 新增串口相关配置项：`mcu_input_mode`、`mcu_serial_device`、`mcu_serial_baud`、`mcu_serial_capture_seconds`；默认继续使用 mock 文件模式。
-- 完成 F407 USART1_TX/GND 到 MP157 UART_RX/GND 的板间验证。
+- 后续实际改为 UART4 专用通信口，并已完成 `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX` 板间验证。
 - 根据 INT1 实际输出模式决定是否将 PB12 从普通输入升级为 EXTI 数据就绪中断。
 - 根据串口稳定性评估 F407 USART 从阻塞式 `HAL_UART_Transmit()` 演进到 DMA/环形缓冲。
 
@@ -355,7 +446,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1
 - 已生成新的 ELF、HEX、BIN 和 map。
 - ELF 中确认 `sensor_hub_app_poll()`、`board_uart_send_bytes()`、`HAL_UART_Transmit()` 和两个帧构建函数均已链接。
 - F407 PC mock CTest 1/1 通过。
-- 尚未执行真实串口抓包和 MP157 板间联调。
+- 当时尚未执行真实串口抓包和 MP157 板间联调；后续已通过 UART4/USART3 完成。
 
 ### 后续 TODO
 

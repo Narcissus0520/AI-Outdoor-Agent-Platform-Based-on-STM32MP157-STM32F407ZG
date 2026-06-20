@@ -1,6 +1,6 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 USART1 PA9、115200 8N1 发送 heartbeat 和 IMU 二进制帧；F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。当前 IMU 帧目标频率为 100 Hz，MP157 Runtime 的协议解析已存在，但真实 Linux 串口输入源和板间联调尚未完成。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 UART4 PC10、115200 8N1 发送 heartbeat 和 IMU 二进制帧到 MP157 USART3 PD9，MP157 Linux 侧设备为 `/dev/ttySTM1`；UART4 PC11 / MP157 PD8 已接线并初始化，后续用于 MP157 下行控制。F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。当前 IMU 帧目标频率为 100 Hz，MP157 Runtime 的 serial 输入源和板间联调已完成最小验证。
 
 串口上传输的是连续二进制帧，不附加换行符，也不转换为十六进制文本。
 
@@ -52,7 +52,7 @@ bit 1 / 0x0002: IMU fallback active，IMU 帧来自 Mock IMU
 bit 2 / 0x0004: IMU init/read error，ICM42688 初始化或读取失败
 ```
 
-`scripts/verify_f407_uart.ps1` 会打印最后一帧 heartbeat 的 `last_heartbeat_status_flags`，上板验证时可用它判断当前 IMU 数据源。
+PC 侧历史 `scripts/verify_f407_uart.ps1` 会打印最后一帧 heartbeat 的 `last_heartbeat_status_flags`；当前板间验证以 MP157 Runtime `runtime_status.json` 中的 `mcu.status_flags` 为准。`0x0001` 表示当前 IMU 数据来自真实 ICM42688。
 
 ## Mock Sensor Payload
 

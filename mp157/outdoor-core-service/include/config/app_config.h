@@ -10,7 +10,11 @@ namespace outdoor::config {
 
 struct AppConfig {
     std::string nmeaInputPath = "data/nmea_sample.txt";
+    std::string mcuInputMode = "mock_file";
     std::string mcuMockInputPath = "data/mcu_mock_frames.txt";
+    std::string mcuSerialDevice = "/dev/ttySTM1";
+    std::uint32_t mcuSerialBaud = 115200;
+    std::uint32_t mcuSerialCaptureSeconds = 5;
     std::string statusOutputPath = "runtime/runtime_status.json";
     bool boardImuEnabled = false;
     std::string boardImuSource = "char_device";

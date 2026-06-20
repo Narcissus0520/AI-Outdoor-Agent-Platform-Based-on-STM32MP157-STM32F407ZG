@@ -114,8 +114,36 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
 
         if (key == "nmea_input_path") {
             config.nmeaInputPath = value;
+        } else if (key == "mcu_input_mode") {
+            if (value != "mock_file" && value != "serial") {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported mcu_input_mode '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.mcuInputMode = value;
         } else if (key == "mcu_mock_input_path") {
             config.mcuMockInputPath = value;
+        } else if (key == "mcu_serial_device") {
+            config.mcuSerialDevice = value;
+        } else if (key == "mcu_serial_baud") {
+            std::uint32_t parsed = 0;
+            if (!parseUint32(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported mcu_serial_baud '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.mcuSerialBaud = parsed;
+        } else if (key == "mcu_serial_capture_seconds") {
+            std::uint32_t parsed = 0;
+            if (!parseUint32(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported mcu_serial_capture_seconds '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.mcuSerialCaptureSeconds = parsed;
         } else if (key == "status_output_path") {
             config.statusOutputPath = value;
         } else if (key == "board_imu_enabled") {

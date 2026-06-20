@@ -16,6 +16,7 @@
 - CRC16/MODBUS 校验
 - Heartbeat、mock sensor 和 Mock IMU 帧解析
 - `runtime_status.json` 输出独立 `imu` 字段
+- F407 live serial 输入路径，默认按 MP157 USART3 `/dev/ttySTM1` 读取 115200 8N1 二进制 MCU 帧，已通过 F407 UART4 上板验证
 - MP157 板载 ICM20608 字符设备读取服务，输出独立 `board_imu` 字段
 - ICM20608 IIO sysfs reader 保留为后续可选来源
 
@@ -73,6 +74,24 @@ modprobe icm20608
 
 已验证结果：`runtime/runtime_status.json` 中 `board_imu.enabled=true`、`board_imu.seen=true`、`source=icm20608_char`、`sample_count=5`、`last_error=""`，静置样例中 Z 轴约 `0.983g`。
 
+F407 -> MP157 live serial 软件路径已实现，默认目标是 MP157 `USART3_RX` 对应的 `/dev/ttySTM1`。当前已按如下接线完成上板验证：
+
+```text
+F407 PC10 (UART4_TX) -> MP157 PD9 (USART3_RX, /dev/ttySTM1)
+F407 PC11 (UART4_RX) <- MP157 PD8 (USART3_TX)
+F407 GND              - MP157 GND
+```
+
+运行方式：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5
+```
+
+2026-06-20 验证结果：`runtime/runtime_status.json` 中 `mcu.heartbeat_seen=true`、`mcu.imu_seen=true`、`mcu.status_flags=1`、`imu.seen=true`，IMU 字段来自 F407 真实 ICM42688 串口帧。
+
+当前暂未执行真实 F407 -> MP157 上板验证。
+
 ## 验证
 
 ```powershell
@@ -86,6 +105,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - MCU heartbeat mock 帧
 - MCU mock sensor 帧
 - MCU Mock IMU 帧和 `imu` 状态字段
+- MCU byte-stream decoder 对前导噪声、分片帧和连续帧的处理
 - 默认 `board_imu` 状态字段
 - fake character-device / fake-IIO 的 ICM20608 换算测试
 - MCU CRC16 错误拒绝
@@ -103,7 +123,11 @@ config/runtime.conf
 
 ```text
 nmea_input_path = data/nmea_sample.txt
+mcu_input_mode = mock_file
 mcu_mock_input_path = data/mcu_mock_frames.txt
+mcu_serial_device = /dev/ttySTM1
+mcu_serial_baud = 115200
+mcu_serial_capture_seconds = 5
 status_output_path = runtime/runtime_status.json
 board_imu_enabled = false
 board_imu_source = char_device

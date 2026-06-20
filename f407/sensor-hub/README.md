@@ -34,7 +34,8 @@ sensor-hub/
 - STM32Cube FW_F4：V1.28.3。
 - 系统时钟：生成代码使用 HSI + PLL，目标 168 MHz。
 - GPIO：PF9 (`LED0`) 和 PF10 (`LED1`)。
-- USART1：PA9 TX、PA10 RX、115200、8N1、无流控。
+- USART1：PA9 TX、PA10 RX、115200、8N1、无流控；当前保留给 UART Bootloader 下载链路。
+- UART4：PC10 TX、PC11 RX、115200、8N1、无流控；当前作为 F407 与 MP157 USART3 的应用通信口。
 - ICM42688 管脚：PB10 (`I2C2_SCL`)、PB11 (`I2C2_SDA`)、PB12 (`ICM42688_INT1`)。
 - I2C2：100 kHz，7-bit 从地址 `0x69`（ICM42688 `AD0` 接 3.3 V）。
 - 已接入 ICM42688 `WHO_AM_I` 检测、100 Hz accel/gyro 配置和 14 字节 burst 读取；暂未配置 DMA。
@@ -69,11 +70,11 @@ cmake --build f407/sensor-hub/firmware/build
 当前 `main()`：
 
 - 每 500 ms 翻转 PF9 (`LED0`)。
-- 每 1000 ms 通过 USART1 发送 heartbeat。
-- 每 10 ms 读取 ICM42688 并通过 USART1 发送一帧 IMU，目标采样/上报频率为 100 Hz；若 ICM42688 初始化或读取失败，则回退到 Mock IMU。
+- 每 1000 ms 通过 UART4 发送 heartbeat。
+- 每 10 ms 读取 ICM42688 并通过 UART4 发送一帧 IMU，目标采样/上报频率为 100 Hz；若 ICM42688 初始化或读取失败，则回退到 Mock IMU。
 - 串口输出是二进制 MCU 协议，不是可读文本。
 
-USART1 heartbeat 和 IMU 帧已通过 F407 上板串口抓包验证；ICM42688 I2C 数据源已在修正 SCL/SDA 接线后通过上板验证，heartbeat `status_flags=0x0001` 表示当前 IMU 帧来自真实 ICM42688。当前 100 Hz 版本也已通过上板抓包确认。
+USART1 heartbeat 和 IMU 帧曾通过 F407 上板串口抓包验证；当前应用通信口已切换为 UART4，并已通过 MP157 USART3 `/dev/ttySTM1` 上板验证。ICM42688 I2C 数据源已在修正 SCL/SDA 接线后通过上板验证，heartbeat `status_flags=0x0001` 表示当前 IMU 帧来自真实 ICM42688。当前 100 Hz 版本也已通过上板抓包确认。
 
 ## 上电时序与工作流程
 
@@ -87,7 +88,7 @@ USART1 heartbeat 和 IMU 帧已通过 F407 上板串口抓包验证；ICM42688 I
 
 正常上电运行流程：
 
-1. F407 复位启动，执行 CubeMX 生成的 `HAL_Init()`、系统时钟、GPIO、I2C2 和 USART1 初始化。
+1. F407 复位启动，执行 CubeMX 生成的 `HAL_Init()`、系统时钟、GPIO、I2C2、USART1 和 UART4 初始化。
 2. `main()` 进入项目 USER CODE 区域，调用 `sensor_hub_app_init()`。
 3. `sensor_hub_app_init()` 初始化 Mock IMU fallback，并执行 ICM42688 初始化：
    - 选择 register bank 0。
@@ -106,8 +107,8 @@ USART1 heartbeat 和 IMU 帧已通过 F407 上板串口抓包验证；ICM42688 I
 
 1. `scripts/flash_f407_uart.ps1` 通过一键下载电路控制 DTR/RTS，使 F407 进入 STM32 ROM UART Bootloader。
 2. 脚本写入 `sensor_hub.bin` 到 `0x08000000`，并执行逐字节回读校验。
-3. `scripts/verify_f407_uart.ps1` 触发应用态复位，按 115200 8N1 抓取 USART1 二进制帧。
-4. 如果刚刷写后第一次抓包读到 0 字节，通常是应用态复位状态未切换到位；再次运行验证脚本或手动复位后复测。
+3. 当前应用态协议帧通过 UART4 输出到 MP157 USART3；COM6/USART1 只用于 Bootloader 烧录。
+4. 如果刚刷写后 MP157 侧没有读到帧，先通过 COM6 触发 F407 应用态复位或手动复位后复测。
 
 ICM42688 接线要求：
 
@@ -124,10 +125,12 @@ ICM42688 GND  -> F407 GND
 接线时使用 3.3 V TTL 电平：
 
 ```text
-F407 PA9  (USART1_TX) -> MP157 UART_RX
-F407 PA10 (USART1_RX) <- MP157 UART_TX  # 当前上报测试可暂不连接
-F407 GND               - MP157 GND
+F407 PC10 (UART4_TX) -> MP157 PD9 (USART3_RX, /dev/ttySTM1)
+F407 PC11 (UART4_RX) <- MP157 PD8 (USART3_TX)
+F407 GND              - MP157 GND
 ```
+
+USART1 PA9/PA10 继续用于 F407 USB-UART 下载和 ROM Bootloader，不参与当前板间应用通信。
 
 上一版 10 Hz 固件已通过 CH340 `COM3` 完成 UART Bootloader 烧录和串口抓包验证：
 
@@ -148,10 +151,20 @@ F407 GND               - MP157 GND
 可复现命令：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM3
-powershell -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1 -PortName COM3 -Seconds 5 -MinImuHz 80
+powershell -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM6
 ```
 
 如果 Bootloader 因读保护返回 NACK，可在确认会擦除用户 Flash 后追加 `-ReadoutUnprotectFirst`。
+
+当前 UART4 -> MP157 USART3 验证命令在 MP157 上执行：
+
+```bash
+stty -F /dev/ttySTM1 115200 raw -echo -ixon -ixoff -crtscts
+timeout 5 dd if=/dev/ttySTM1 bs=1 count=512 | hexdump -C
+cd /tmp/ai_outdoor_runtime_serial
+./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5
+```
+
+2026-06-20 验证结果：MP157 raw capture 可见连续 `a5 5a` 帧头；Runtime serial 模式输出 `mcu.heartbeat_seen=true`、`mcu.imu_seen=true`、`mcu.status_flags=1`、`imu.seen=true`。
 
 不要直接修改 Cube 生成区域来承载业务逻辑；项目代码应优先放在 `firmware/app` 等项目自有目录，并通过明确的 HAL/BSP 边界接入。

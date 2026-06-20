@@ -23,6 +23,8 @@ mp157/outdoor-core-service/
 
 当前 MP157 Runtime 已包含 `include/sensors` 和 `src/sensors`，用于主控侧板载传感器读取。当前实现为 ICM20608 字符设备 reader 和 IIO sysfs reader；运行时服务位于 `include/services/icm20608_service.h` 和 `src/services/icm20608_service.cpp`，默认关闭，上板时通过配置或 `--board-imu` 启用。真实 MP157 板上已通过 `/dev/icm20608` 字符设备完成 Runtime 读取验证。
 
+当前 MP157 Runtime 也包含 `McuSerialService` 和 `McuFrameStreamDecoder`，用于从 `/dev/ttySTM1` 读取 F407 UART4 输出的 MCU 二进制帧；该路径已通过 `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX` 上板验证。
+
 ## `f407/`
 
 `f407/` 用于 STM32F407ZG Sensor Hub 固件。
@@ -57,7 +59,7 @@ f407/sensor-hub/
     └── stm32cube/              # CubeMX 生成代码、HAL/CMSIS 和 .ioc
 ```
 
-`firmware/stm32cube/` 当前配置系统时钟、PF9/PF10 LED GPIO、USART1 PA9/PA10、I2C2 PB10/PB11，以及 ICM42688 INT1 PB12。目录中保留 MDK-ARM 工程作为 CubeMX 生成基线；仓库使用 GNU Arm Embedded Toolchain 和 CMake 生成 ELF/HEX/BIN/map，不依赖 Keil 工程完成编译。
+`firmware/stm32cube/` 当前配置系统时钟、PF9/PF10 LED GPIO、USART1 PA9/PA10、UART4 PC10/PC11、I2C2 PB10/PB11，以及 ICM42688 INT1 PB12。USART1 保留为 UART Bootloader 下载口；UART4 是 F407 与 MP157 的应用通信口。目录中保留 MDK-ARM 工程作为 CubeMX 生成基线；仓库使用 GNU Arm Embedded Toolchain 和 CMake 生成 ELF/HEX/BIN/map，不依赖 Keil 工程完成编译。
 
 ## `common/`
 
@@ -96,4 +98,4 @@ scripts/flash_f407_uart.ps1
 scripts/verify_f407_uart.ps1
 ```
 
-`build_mp157.sh` 构建 MP157 Runtime；`build_f407.ps1` 使用 GNU Arm Embedded Toolchain 和 Ninja 构建 F407 固件；`flash_f407_uart.ps1` 通过 STM32 ROM UART Bootloader 烧录并回读校验 F407 固件；`verify_f407_uart.ps1` 抓取并统计 F407 USART1 heartbeat 和 IMU 二进制帧。
+`build_mp157.sh` 构建 MP157 Runtime；`build_f407.ps1` 使用 GNU Arm Embedded Toolchain 和 Ninja 构建 F407 固件；`flash_f407_uart.ps1` 通过 STM32 ROM UART Bootloader 烧录并回读校验 F407 固件；`verify_f407_uart.ps1` 是历史 PC 侧 USART1 协议帧抓取脚本，当前 UART4 板间验证以 MP157 `/dev/ttySTM1` raw capture 和 Runtime serial 模式为准。
