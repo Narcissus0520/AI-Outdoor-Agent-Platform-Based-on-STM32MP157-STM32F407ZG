@@ -16,6 +16,7 @@ set(OUTDOOR_CORE_SOURCES
     src/ipc/status_publisher.cpp
     src/log/logger.cpp
     src/mcu/imu_payload_parser.cpp
+    src/mcu/mcu_command.cpp
     src/mcu/mcu_frame_parser.cpp
     src/mcu/mcu_frame_stream_decoder.cpp
     src/mcu/mcu_protocol.cpp

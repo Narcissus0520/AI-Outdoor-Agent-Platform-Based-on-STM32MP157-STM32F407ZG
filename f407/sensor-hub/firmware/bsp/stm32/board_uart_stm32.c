@@ -21,3 +21,21 @@ int board_uart_send_bytes(const uint8_t* data, size_t length)
                ? 0
                : -1;
 }
+
+int board_uart_receive_byte(uint8_t* out_byte)
+{
+    HAL_StatusTypeDef status;
+
+    if (out_byte == NULL) {
+        return -1;
+    }
+
+    status = HAL_UART_Receive(&huart4, out_byte, 1U, 0U);
+    if (status == HAL_OK) {
+        return 1;
+    }
+    if (status == HAL_TIMEOUT) {
+        return 0;
+    }
+    return -1;
+}

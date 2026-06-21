@@ -116,3 +116,30 @@ int mcu_build_imu_frame(uint16_t sequence,
     finish_frame(out_frame, MCU_IMU_PAYLOAD_SIZE, out_length);
     return 0;
 }
+
+int mcu_build_command_ack_frame(uint16_t sequence,
+                                uint8_t request_type,
+                                uint8_t status,
+                                uint32_t nonce,
+                                uint8_t* out_frame,
+                                size_t out_capacity,
+                                size_t* out_length)
+{
+    uint8_t* payload;
+
+    if (begin_frame(MCU_MSG_TYPE_COMMAND_ACK,
+                    sequence,
+                    MCU_COMMAND_ACK_PAYLOAD_SIZE,
+                    out_frame,
+                    out_capacity) != 0) {
+        return -1;
+    }
+
+    payload = &out_frame[MCU_FRAME_HEADER_SIZE];
+    payload[0] = request_type;
+    payload[1] = status;
+    write_u16_le(&payload[2], 0U);
+    write_u32_le(&payload[4], nonce);
+    finish_frame(out_frame, MCU_COMMAND_ACK_PAYLOAD_SIZE, out_length);
+    return 0;
+}

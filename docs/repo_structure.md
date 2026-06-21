@@ -23,7 +23,7 @@ mp157/outdoor-core-service/
 
 当前 MP157 Runtime 已包含 `include/sensors` 和 `src/sensors`，用于主控侧板载传感器读取。当前实现为 ICM20608 字符设备 reader 和 IIO sysfs reader；运行时服务位于 `include/services/icm20608_service.h` 和 `src/services/icm20608_service.cpp`，默认关闭，上板时通过配置或 `--board-imu` 启用。真实 MP157 板上已通过 `/dev/icm20608` 字符设备完成 Runtime 读取验证。
 
-当前 MP157 Runtime 也包含 `McuSerialService` 和 `McuFrameStreamDecoder`，用于从 `/dev/ttySTM1` 读取 F407 UART4 输出的 MCU 二进制帧；该路径已通过 `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX` 上板验证。
+当前 MP157 Runtime 也包含 `McuSerialService`、`McuFrameStreamDecoder` 和 `McuCommand`，用于从 `/dev/ttySTM1` 读取 F407 UART4 输出的 MCU 二进制帧，并通过同一串口发送最小 `command_ping` 下行命令；上行读取路径已通过 `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX` 上板验证，下行物理链路已通过 MP157 shell raw ping/ack 验证，新版 ARM Runtime 板端复测仍待完成。
 
 ## `f407/`
 
@@ -38,7 +38,7 @@ f407/sensor-hub/
 当前提供两类代码：
 
 - PC mock C++ 工程：可在本机编译验证 Mock IMU Provider 和 MCU 协议帧打包。
-- `firmware/`：真实 F407 固件工作区，包含项目自有的 app、BSP、协议、ICM42688 数据源和 Mock IMU fallback。
+- `firmware/`：真实 F407 固件工作区，包含项目自有的 app、BSP、协议、ICM42688 数据源、Mock IMU fallback 和最小 command decoder。
 - `firmware/stm32cube/`：STM32CubeMX 6.17.0 基于 STM32Cube FW_F4 V1.28.3 生成的 `STM32F407ZGTx` HAL 基础工程。
 
 ```text

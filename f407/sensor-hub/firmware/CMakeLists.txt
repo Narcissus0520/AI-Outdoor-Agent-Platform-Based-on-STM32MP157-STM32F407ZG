@@ -67,6 +67,7 @@ add_executable(sensor_hub
     bsp/stm32/board_tick_stm32.c
     bsp/stm32/board_uart_stm32.c
     protocol/crc16_modbus_c.c
+    protocol/mcu_command_decoder_c.c
     protocol/mcu_frame_builder_c.c
     sensors/icm42688_provider_c.c
     sensors/mock_imu_provider_c.c

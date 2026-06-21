@@ -27,6 +27,7 @@
 - 已包含：ICM42688 I2C2 PB10/PB11、INT1 PB12、I2C BSP、ICM42688 寄存器读取和 Mock IMU 兜底
 - 已包含：修正接线后的 ICM42688 真实读数上板验证
 - 已包含：MP157 Linux 真实串口输入和 F407 UART4 -> MP157 USART3 板间联调
+- 已包含：MP157 -> F407 最小 `command_ping -> command_ack` 软件路径
 - 当前开发环境：GNU Arm Embedded Toolchain 14.2.Rel1、CMake 和 Ninja
 
 Cube 生成代码与项目代码的边界见 `docs/adr/0008-f407-cube-source-and-cmake-build-boundary.md`。
@@ -148,7 +149,8 @@ USART1 PA9/PA10 只保留给 F407 USB 下载/Bootloader，不再作为 F407 与 
 3. `sensor_hub_app_init()` 初始化 Mock IMU fallback，并对 ICM42688 执行 bank 0 选择、软复位、`WHO_AM_I=0x47` 检查、accel/gyro 量程和 100 Hz ODR 配置、`PWR_MGMT0` 使能。
 4. 初始化成功后 heartbeat `status_flags=0x0001`；初始化失败则进入 Mock fallback，`status_flags=0x0006`。
 5. `sensor_hub_app_poll()` 在主循环中持续运行：PF9 每 500 ms 翻转，heartbeat 每 1000 ms 发送，IMU 每 10 ms 读取 ICM42688 并发送 `sensor_imu` 帧。
-6. 若运行中 I2C 读取失败，当前策略是立即回退 Mock IMU 并设置 fallback/error 标志；后续需要补充自动重新初始化策略。
+6. `sensor_hub_app_poll()` 同时轮询 UART4 RX，收到合法 `command_ping` 后立即回传 `command_ack`。
+7. 若运行中 I2C 读取失败，当前策略是立即回退 Mock IMU 并设置 fallback/error 标志；后续需要补充自动重新初始化策略。
 
 烧录/验证流程：
 
@@ -211,6 +213,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1
 - [x] 将 F407 UART4 PC10/PC11 和 GND 接入 MP157 USART3 PD9/PD8/GND
 - [x] 在 MP157 上验证 `runtime_status.json` 输出真实 heartbeat 和 IMU 状态
 - [ ] 根据实测串口稳定性再评估 UART DMA 发送队列和 Runtime 长期运行模型
+
+### Step 9：MP157 Downlink Command Prototype
+
+- [x] 新增 `command_ping` / `command_ack` 帧类型，保持既有 SOF、version、sequence、payload_length 和 CRC16/MODBUS 帧格式
+- [x] MP157 Runtime 新增 `mcu_command = none | ping` 配置项和 `--mcu-command none|ping` 命令行参数
+- [x] MP157 serial 模式将 `/dev/ttySTM1` 以读写方式打开，发送 ping 后继续读取 F407 上行帧和 ack
+- [x] F407 新增 UART4 RX 非阻塞字节读取 BSP
+- [x] F407 新增 C 版命令帧 decoder，当前只接受 4 字节 nonce 的 `command_ping`
+- [x] F407 收到 ping 后返回 `command_ack`，payload 包含 `request_type`、`status`、reserved 和原 nonce
+- [x] MP157 `runtime_status.json` 输出 `command_ack_seen`、`command_ack_request_type`、`command_ack_status` 和 `command_ack_nonce`
+- [x] 本机和交叉编译构建通过，单元测试覆盖 ping 构帧和 ack 解析
+- [x] 在真实板上使用 MP157 shell 向 `/dev/ttySTM1` 发送 raw `command_ping`，确认 F407 返回 `command_ack`
+- [ ] 在真实板上执行新版 ARM Runtime `--mcu-command ping`，确认 `command_ack_seen=true`、`command_ack_status=0`
+
+真实板上验证命令：
+
+```bash
+cd /tmp/ai_outdoor_runtime_serial
+./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5 --mcu-command ping
+cat runtime/runtime_status.json
+```
+
+2026-06-21 raw shell 验证命令：
+
+```bash
+stty -F /dev/ttySTM1 115200 raw -echo -ixon -ixoff -crtscts
+exec 3<>/dev/ttySTM1
+printf '\xA5\x5A\x01\x80\x01\x00\x04\x00\x47\x4E\x49\x50\xC3\x43' >&3
+timeout 3 dd bs=1 count=1024 <&3 2>/dev/null | hexdump -C
+```
+
+验证结果：回包首帧为 `a5 5a 01 81 ... 80 00 00 00 47 4e 49 50 ...`，表示 F407 已识别 `command_ping`，`command_ack.status=0`，并原样返回 nonce `0x50494E47`。本次通过 COM3 串口 console 上传新版 ARM Runtime 包时遇到大包输入 overrun 和 SHA256 校验失败，因此 `--mcu-command ping` 的板端 Runtime 复测后续需要通过更可靠的部署方式完成。
 
 ## 暂不处理
 

@@ -12,9 +12,12 @@ std::string formatMcuStatus(const McuStatus& status)
            << "MCU status: heartbeat=" << (status.heartbeatSeen ? "true" : "false")
            << ", mock_sensor=" << (status.mockSensorSeen ? "true" : "false")
            << ", imu=" << (status.imuSeen ? "true" : "false")
+           << ", command_ack=" << (status.commandAckSeen ? "true" : "false")
            << ", seq=" << status.lastSequence
            << ", uptime_ms=" << status.uptimeMs
            << ", flags=0x" << std::hex << std::uppercase << status.statusFlags << std::dec
+           << ", command_ack_status=" << static_cast<int>(status.commandAckStatus)
+           << ", command_ack_nonce=0x" << std::hex << std::uppercase << status.commandAckNonce << std::dec
            << ", temp_c=" << std::setprecision(2) << status.temperatureCelsius
            << ", humidity_pct=" << status.humidityPercent
            << ", accel_g=(" << status.accelXG << ", " << status.accelYG << ", " << status.accelZG << ")"

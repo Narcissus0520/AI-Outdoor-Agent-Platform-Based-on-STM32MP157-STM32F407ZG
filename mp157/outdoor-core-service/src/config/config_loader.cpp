@@ -144,6 +144,14 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
                 return false;
             }
             config.mcuSerialCaptureSeconds = parsed;
+        } else if (key == "mcu_command") {
+            if (value != "none" && value != "ping") {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported mcu_command '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.mcuCommand = value;
         } else if (key == "status_output_path") {
             config.statusOutputPath = value;
         } else if (key == "board_imu_enabled") {

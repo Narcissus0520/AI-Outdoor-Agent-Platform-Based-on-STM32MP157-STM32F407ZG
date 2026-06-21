@@ -15,10 +15,14 @@ enum {
     MCU_PROTOCOL_VERSION = 0x01U,
     MCU_MSG_TYPE_HEARTBEAT = 0x01U,
     MCU_MSG_TYPE_SENSOR_IMU = 0x11U,
+    MCU_MSG_TYPE_COMMAND_PING = 0x80U,
+    MCU_MSG_TYPE_COMMAND_ACK = 0x81U,
     MCU_FRAME_HEADER_SIZE = 8U,
     MCU_FRAME_CRC_SIZE = 2U,
     MCU_HEARTBEAT_PAYLOAD_SIZE = 6U,
     MCU_IMU_PAYLOAD_SIZE = 24U,
+    MCU_COMMAND_PING_PAYLOAD_SIZE = 4U,
+    MCU_COMMAND_ACK_PAYLOAD_SIZE = 8U,
     MCU_FRAME_MAX_PAYLOAD_SIZE = 64U,
     MCU_FRAME_MAX_SIZE = MCU_FRAME_HEADER_SIZE + MCU_FRAME_MAX_PAYLOAD_SIZE + MCU_FRAME_CRC_SIZE,
 };
@@ -35,6 +39,14 @@ int mcu_build_imu_frame(uint16_t sequence,
                         uint8_t* out_frame,
                         size_t out_capacity,
                         size_t* out_length);
+
+int mcu_build_command_ack_frame(uint16_t sequence,
+                                uint8_t request_type,
+                                uint8_t status,
+                                uint32_t nonce,
+                                uint8_t* out_frame,
+                                size_t out_capacity,
+                                size_t* out_length);
 
 #ifdef __cplusplus
 }

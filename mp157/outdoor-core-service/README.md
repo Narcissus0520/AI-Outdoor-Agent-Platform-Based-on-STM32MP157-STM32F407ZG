@@ -17,6 +17,7 @@
 - Heartbeat、mock sensor 和 Mock IMU 帧解析
 - `runtime_status.json` 输出独立 `imu` 字段
 - F407 live serial 输入路径，默认按 MP157 USART3 `/dev/ttySTM1` 读取 115200 8N1 二进制 MCU 帧，已通过 F407 UART4 上板验证
+- 最小 MP157 -> F407 `command_ping -> command_ack` 软件路径，serial 模式可通过 `--mcu-command ping` 发送命令
 - MP157 板载 ICM20608 字符设备读取服务，输出独立 `board_imu` 字段
 - ICM20608 IIO sysfs reader 保留为后续可选来源
 
@@ -90,7 +91,13 @@ F407 GND              - MP157 GND
 
 2026-06-20 验证结果：`runtime/runtime_status.json` 中 `mcu.heartbeat_seen=true`、`mcu.imu_seen=true`、`mcu.status_flags=1`、`imu.seen=true`，IMU 字段来自 F407 真实 ICM42688 串口帧。
 
-当前暂未执行真实 F407 -> MP157 上板验证。
+MP157 -> F407 最小下行 ping 命令：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5 --mcu-command ping
+```
+
+预期 F407 通过 UART4 RX 解析 `command_ping`，再通过 UART4 TX 返回 `command_ack`；MP157 侧 `runtime/runtime_status.json` 中应出现 `mcu.command_ack_seen=true`、`mcu.command_ack_status=0` 和默认 nonce。当前已通过 MP157 shell raw 写帧方式确认 F407 返回 `command_ack`，新版 ARM Runtime `--mcu-command ping` 板端复测后续补充。
 
 ## 验证
 
@@ -128,6 +135,7 @@ mcu_mock_input_path = data/mcu_mock_frames.txt
 mcu_serial_device = /dev/ttySTM1
 mcu_serial_baud = 115200
 mcu_serial_capture_seconds = 5
+mcu_command = none
 status_output_path = runtime/runtime_status.json
 board_imu_enabled = false
 board_imu_source = char_device

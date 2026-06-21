@@ -11,9 +11,13 @@ struct McuStatus {
     bool heartbeatSeen = false;
     bool mockSensorSeen = false;
     bool imuSeen = false;
+    bool commandAckSeen = false;
     std::uint16_t lastSequence = 0;
     std::uint32_t uptimeMs = 0;
     std::uint16_t statusFlags = 0;
+    std::uint8_t commandAckRequestType = 0;
+    std::uint8_t commandAckStatus = 0;
+    std::uint32_t commandAckNonce = 0;
     double temperatureCelsius = 0.0;
     double humidityPercent = 0.0;
     double accelXG = 0.0;

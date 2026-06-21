@@ -1,5 +1,60 @@
 # Dev Log
 
+## 2026-06-20 - MP157 to F407 Ping Ack Prototype
+
+### 本次完成
+
+- 在 MCU 协议中新增 `command_ping` 和 `command_ack`，复用现有二进制帧头、payload length 和 CRC16/MODBUS。
+- MP157 Runtime 新增 `mcu_command = none | ping` 配置项和 `--mcu-command none|ping` 命令行参数。
+- MP157 serial 模式将 `/dev/ttySTM1` 以读写方式打开，启动采集前发送 `command_ping`，随后继续读取 F407 heartbeat、IMU 和 ack 帧。
+- F407 固件新增 UART4 RX 非阻塞字节读取 BSP、命令帧 decoder 和 ping ack 回包逻辑。
+- `runtime_status.json` 的 `mcu` 字段新增 `command_ack_seen`、`command_ack_request_type`、`command_ack_status` 和 `command_ack_nonce`。
+
+### 修改文件
+
+- `common/protocol/mcu_protocol.h`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/mcu_protocol.md`
+- `docs/project_design.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `f407/sensor-hub/README.md`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/bsp/board_uart.c`
+- `f407/sensor-hub/firmware/bsp/board_uart.h`
+- `f407/sensor-hub/firmware/bsp/stm32/board_uart_stm32.c`
+- `f407/sensor-hub/firmware/protocol/mcu_command_decoder_c.c`
+- `f407/sensor-hub/firmware/protocol/mcu_command_decoder_c.h`
+- `f407/sensor-hub/firmware/protocol/mcu_frame_builder_c.c`
+- `f407/sensor-hub/firmware/protocol/mcu_frame_builder_c.h`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/include/mcu/mcu_command.h`
+- `mp157/outdoor-core-service/src/mcu/mcu_command.cpp`
+- `mp157/outdoor-core-service/src/services/mcu_serial_service.cpp`
+
+### 验证结果
+
+- `powershell -ExecutionPolicy Bypass -File scripts\build_f407.ps1` 通过。
+- `powershell -ExecutionPolicy Bypass -File scripts\flash_f407_uart.ps1 -PortName COM6` 通过，刷写 `sensor_hub.bin` 11100 B，Bootloader version `0x31`，chip ID `0x0413`，逐字节回读校验成功。
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过。
+- `powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过。
+- `cmake --build mp157/outdoor-core-service/build-arm` 通过。
+- 在 MP157 shell 中执行 raw ping 验证：向 `/dev/ttySTM1` 写入 `a5 5a 01 80 01 00 04 00 47 4e 49 50 c3 43`。
+- F407 回包首帧为 `a5 5a 01 81 f1 99 08 00 80 00 00 00 47 4e 49 50 f1 59`，确认 `command_ack`、`request_type=0x80`、`status=0`、nonce `0x50494E47`。
+
+### 后续 TODO
+
+- 使用更可靠的部署方式在 MP157 上运行新版 ARM Runtime `--mcu-command ping`，确认 `command_ack_seen=true`、`command_ack_status=0`。
+- 将当前 ping/ack 原型扩展为版本化命令集前，需要先定义命令权限、错误码、重试和超时策略。
+- 后续根据长期运行结果评估 UART4 DMA/环形缓冲。
+
+### 问题与解决
+
+- 刷写后第一次从 MP157 `/dev/ttySTM1` 抓包为 0 字节，重新通过 COM6 DTR/RTS 组合触发 F407 应用态复位后恢复，随后可连续抓到 `a5 5a` IMU 帧。
+- 通过 COM3 串口 console 上传新版 ARM Runtime 压缩包时，多次出现 `ttySTM0 input overrun`，板端 SHA256 校验失败；降速后仍有字符丢失。当前先用 MP157 shell raw ping 验证 F407 固件命令解析和物理双向链路，Runtime 板端复测留到更可靠的部署路径。
+
 ## 2026-06-20 - F407 UART4 to MP157 USART3 Board Validation
 
 ### 本次完成

@@ -1,6 +1,6 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 UART4 PC10、115200 8N1 发送 heartbeat 和 IMU 二进制帧到 MP157 USART3 PD9，MP157 Linux 侧设备为 `/dev/ttySTM1`；UART4 PC11 / MP157 PD8 已接线并初始化，后续用于 MP157 下行控制。F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。当前 IMU 帧目标频率为 100 Hz，MP157 Runtime 的 serial 输入源和板间联调已完成最小验证。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 UART4 PC10、115200 8N1 发送 heartbeat 和 IMU 二进制帧到 MP157 USART3 PD9，MP157 Linux 侧设备为 `/dev/ttySTM1`；UART4 PC11 / MP157 PD8 已接线并用于最小下行命令 `command_ping -> command_ack`。F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。当前 IMU 帧目标频率为 100 Hz，MP157 Runtime 的 serial 输入源和板间联调已完成最小验证；下行物理链路已通过 MP157 shell raw ping/ack 验证，新版 ARM Runtime `--mcu-command ping` 板端复测仍待完成。
 
 串口上传输的是连续二进制帧，不附加换行符，也不转换为十六进制文本。
 
@@ -34,6 +34,8 @@ version, frame_type, sequence, payload_length, payload
 0x01 heartbeat
 0x10 mock_sensor
 0x11 sensor_imu
+0x80 command_ping
+0x81 command_ack
 ```
 
 ## Heartbeat Payload
@@ -93,6 +95,36 @@ offset  size  field
 - `accel_*_mg / 1000.0`
 - `gyro_*_mdps / 1000.0`
 - `temperature_centi_c / 100.0`
+
+## Command Ping Payload
+
+`command_ping` 是 MP157 发往 F407 的最小下行命令，用于验证反向串口链路和固件命令解析。当前 MP157 侧可通过 `--mcu-command ping` 发送，默认 nonce 为 `0x50494E47`。
+
+```text
+offset  size  field
+0       4     nonce
+```
+
+## Command Ack Payload
+
+`command_ack` 是 F407 对 `command_ping` 的回应。当前 `status = 0` 表示命令已识别并处理成功；`nonce` 原样返回，用于 MP157 侧确认回应属于本次请求。
+
+```text
+offset  size  field
+0       1     request_type
+1       1     status
+2       2     reserved = 0
+4       4     nonce
+```
+
+MP157 Runtime 解析到 `command_ack` 后，会在 `runtime_status.json` 的 `mcu` 字段中输出：
+
+```text
+command_ack_seen
+command_ack_request_type
+command_ack_status
+command_ack_nonce
+```
 
 ## Mock Frames
 

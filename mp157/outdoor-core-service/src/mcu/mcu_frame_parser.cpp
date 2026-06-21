@@ -86,6 +86,11 @@ bool McuFrameParser::applyFrame(const McuFrame& frame, McuStatus& status, std::s
         return applyMockSensor(frame, status, error);
     case McuFrameType::SensorImu:
         return applySensorImu(frame, status, error);
+    case McuFrameType::CommandAck:
+        return applyCommandAck(frame, status, error);
+    case McuFrameType::CommandPing:
+        error = "command ping frames are not applied to MP157 status";
+        return false;
     }
 
     error = "unsupported MCU frame type";
@@ -141,6 +146,23 @@ bool McuFrameParser::applySensorImu(const McuFrame& frame, McuStatus& status, st
     status.lastSequence = frame.sequence;
     status.uptimeMs = sample.uptimeMs;
     status.imuSample = sample;
+    status.lastFrameType = mcuFrameTypeToString(frame.type);
+    status.lastError.clear();
+    return true;
+}
+
+bool McuFrameParser::applyCommandAck(const McuFrame& frame, McuStatus& status, std::string& error) const
+{
+    if (frame.payload.size() != kCommandAckPayloadSize) {
+        error = "command ack payload size is invalid";
+        return false;
+    }
+
+    status.commandAckSeen = true;
+    status.lastSequence = frame.sequence;
+    status.commandAckRequestType = frame.payload[0];
+    status.commandAckStatus = frame.payload[1];
+    status.commandAckNonce = readU32Le(frame.payload, 4);
     status.lastFrameType = mcuFrameTypeToString(frame.type);
     status.lastError.clear();
     return true;

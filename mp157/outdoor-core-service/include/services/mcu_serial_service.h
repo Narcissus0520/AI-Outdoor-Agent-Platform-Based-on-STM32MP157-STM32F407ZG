@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mcu/mcu_command.h"
 #include "mcu/mcu_frame_parser.h"
 #include "mcu/mcu_frame_stream_decoder.h"
 #include "mcu/mcu_status.h"
@@ -15,6 +16,7 @@ public:
     McuSerialService(std::string devicePath,
                      std::uint32_t baudRate,
                      std::uint32_t captureSeconds,
+                     outdoor::mcu::McuCommand command,
                      outdoor::mcu::McuStatus& status);
     ~McuSerialService() override;
 
@@ -25,11 +27,13 @@ public:
 
 private:
     bool configurePort(std::string& error);
+    bool sendConfiguredCommand(std::string& error);
     void closePort();
 
     std::string devicePath_;
     std::uint32_t baudRate_ = 115200;
     std::uint32_t captureSeconds_ = 5;
+    outdoor::mcu::McuCommand command_ = outdoor::mcu::McuCommand::None;
     outdoor::mcu::McuStatus& status_;
     outdoor::mcu::McuFrameParser parser_;
     outdoor::mcu::McuFrameStreamDecoder streamDecoder_;

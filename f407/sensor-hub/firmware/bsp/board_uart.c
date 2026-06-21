@@ -14,3 +14,9 @@ SENSOR_HUB_WEAK int board_uart_send_bytes(const uint8_t* data, size_t length)
     (void)length;
     return 0;
 }
+
+SENSOR_HUB_WEAK int board_uart_receive_byte(uint8_t* out_byte)
+{
+    (void)out_byte;
+    return 0;
+}

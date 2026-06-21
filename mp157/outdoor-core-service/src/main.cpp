@@ -1,6 +1,7 @@
 #include "config/config_loader.h"
 #include "ipc/status_publisher.h"
 #include "log/logger.h"
+#include "mcu/mcu_command.h"
 #include "mcu/mcu_status.h"
 #include "runtime/runtime_manager.h"
 #include "services/gnss_replay_service.h"
@@ -32,6 +33,7 @@ void printUsage(const char* programName)
               << " [--config path] [--input path] [--mcu-input-mode mock_file|serial]"
               << " [--mcu-mock-input path] [--mcu-serial-device path]"
               << " [--mcu-serial-baud baud] [--mcu-serial-capture-seconds seconds]"
+              << " [--mcu-command none|ping]"
               << " [--status-output path]"
               << " [--board-imu] [--board-imu-source char_device|iio|auto]"
               << " [--board-imu-device-path path] [--board-imu-iio-path path] [--board-imu-samples count]"
@@ -78,6 +80,7 @@ int main(int argc, char* argv[])
     std::string cliMcuSerialDevice;
     std::string cliMcuSerialBaud;
     std::string cliMcuSerialCaptureSeconds;
+    std::string cliMcuCommand;
     std::string cliLogLevel;
     std::string cliStatusOutputPath;
     bool cliEnableBoardImu = false;
@@ -135,6 +138,12 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliMcuSerialCaptureSeconds = argv[++index];
+        } else if (arg == "--mcu-command") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--mcu-command requires none or ping");
+                return 1;
+            }
+            cliMcuCommand = argv[++index];
         } else if (arg == "--status-output") {
             if (index + 1 >= argc) {
                 outdoor::log::Logger::error("--status-output requires a file path");
@@ -230,6 +239,15 @@ int main(int argc, char* argv[])
         config.mcuSerialCaptureSeconds = static_cast<std::uint32_t>(parsed);
     }
 
+    if (!cliMcuCommand.empty()) {
+        outdoor::mcu::McuCommand parsedCommand {};
+        if (!outdoor::mcu::parseMcuCommand(cliMcuCommand, parsedCommand)) {
+            outdoor::log::Logger::error("Unsupported --mcu-command value: " + cliMcuCommand);
+            return 1;
+        }
+        config.mcuCommand = cliMcuCommand;
+    }
+
     if (!cliStatusOutputPath.empty()) {
         config.statusOutputPath = cliStatusOutputPath;
     }
@@ -287,6 +305,7 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("MCU serial device: " + config.mcuSerialDevice);
     outdoor::log::Logger::info("MCU serial baud: " + std::to_string(config.mcuSerialBaud));
     outdoor::log::Logger::info("MCU serial capture seconds: " + std::to_string(config.mcuSerialCaptureSeconds));
+    outdoor::log::Logger::info("MCU command: " + config.mcuCommand);
     outdoor::log::Logger::info(std::string("Board IMU enabled: ") + (config.boardImuEnabled ? "true" : "false"));
     outdoor::log::Logger::info("Board IMU source: " + config.boardImuSource);
     outdoor::log::Logger::info("Board IMU character device path: " + config.boardImuDevicePath);
@@ -295,6 +314,11 @@ int main(int argc, char* argv[])
 
     outdoor::runtime::RuntimeManager runtime;
     outdoor::mcu::McuStatus mcuStatus;
+    outdoor::mcu::McuCommand mcuCommand {};
+    if (!outdoor::mcu::parseMcuCommand(config.mcuCommand, mcuCommand)) {
+        outdoor::log::Logger::error("Unsupported mcu_command value: " + config.mcuCommand);
+        return 1;
+    }
     outdoor::sensors::BoardImuStatus boardImuStatus;
     boardImuStatus.enabled = config.boardImuEnabled;
     boardImuStatus.source = config.boardImuSource == "iio" ? "icm20608_iio" : "icm20608_char";
@@ -305,6 +329,7 @@ int main(int argc, char* argv[])
             config.mcuSerialDevice,
             config.mcuSerialBaud,
             config.mcuSerialCaptureSeconds,
+            mcuCommand,
             mcuStatus));
     } else {
         runtime.addService(std::make_unique<outdoor::services::McuMockService>(config.mcuMockInputPath, mcuStatus));

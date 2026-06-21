@@ -16,6 +16,10 @@ const char* mcuFrameTypeToString(McuFrameType type)
         return "mock_sensor";
     case McuFrameType::SensorImu:
         return "sensor_imu";
+    case McuFrameType::CommandPing:
+        return "command_ping";
+    case McuFrameType::CommandAck:
+        return "command_ack";
     }
 
     return "unknown";

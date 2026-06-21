@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added minimal MP157 -> F407 downlink command prototype with `command_ping` and `command_ack` MCU frame types.
+- Added MP157 `mcu_command = none | ping` config and `--mcu-command none|ping` CLI option for serial mode.
+- Added F407 UART4 RX byte polling, command frame decoder, and ping ack response.
+- Added `command_ack_*` fields to MP157 `runtime_status.json`.
 - Added MP157 MCU live serial input mode for F407 UART4 frames, defaulting to USART3 `/dev/ttySTM1` at 115200 8N1.
 - Added `McuFrameStreamDecoder` to reconstruct binary MCU frames from noisy, fragmented, continuous serial byte streams.
 - Added serial configuration keys: `mcu_input_mode`, `mcu_serial_device`, `mcu_serial_baud`, and `mcu_serial_capture_seconds`.
@@ -12,6 +16,10 @@
 
 ### Verified
 
+- F407 firmware build passed after adding UART4 RX command handling.
+- F407 UART Bootloader flashing over `COM6` passed for the ping/ack firmware, writing `sensor_hub.bin` 11100 B with byte-for-byte readback verification.
+- MP157 local build, tests, runtime verification script, and ARM cross-build passed after adding ping/ack support.
+- MP157 raw shell ping/ack validation passed: writing `command_ping` bytes to `/dev/ttySTM1` returned a `command_ack` frame with `request_type=0x80`, `status=0`, and nonce `0x50494E47`.
 - F407 firmware build passed after switching `board_uart_send_bytes()` to UART4.
 - F407 UART Bootloader flashing over `COM6` passed with Bootloader version `0x31`, chip ID `0x0413`, and byte-for-byte readback verification.
 - MP157 `/dev/ttySTM1` raw capture showed continuous `A5 5A` MCU frame headers from `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX`.
@@ -19,7 +27,7 @@
 
 ### Deferred
 
-- MP157 -> F407 downlink command handling is not implemented yet; UART4 RX is initialized and wired for later command protocol work.
+- MP157 -> F407 downlink command handling currently only covers the minimal ping/ack prototype; running the new ARM Runtime `--mcu-command ping` on MP157 remains pending because COM3 serial console package upload hit input overrun and SHA256 mismatches.
 
 ## 2026-06-19
 

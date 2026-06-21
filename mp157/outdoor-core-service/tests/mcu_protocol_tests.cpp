@@ -1,4 +1,5 @@
 #include "mcu/imu_payload_parser.h"
+#include "mcu/mcu_command.h"
 #include "mcu/mcu_frame_parser.h"
 #include "mcu/mcu_protocol.h"
 #include "protocol/imu_payload.h"
@@ -46,6 +47,19 @@ std::vector<std::uint8_t> buildImuPayload()
     appendI32Le(payload, -2194);
     appendI32Le(payload, 324);
     appendI16Le(payload, 2531);
+    return payload;
+}
+
+std::vector<std::uint8_t> buildCommandAckPayload(std::uint8_t requestType,
+                                                 std::uint8_t status,
+                                                 std::uint32_t nonce)
+{
+    std::vector<std::uint8_t> payload;
+    payload.reserve(outdoor::mcu::kCommandAckPayloadSize);
+    payload.push_back(requestType);
+    payload.push_back(status);
+    appendU16Le(payload, 0U);
+    appendU32Le(payload, nonce);
     return payload;
 }
 
@@ -103,6 +117,28 @@ int main()
     assert(status.lastSequence == 9);
     assert(status.lastFrameType == "sensor_imu");
     assert(status.imuSample.gyroYMdps == -2194);
+
+    const auto pingFrame = outdoor::mcu::buildPingCommandFrame(11U, outdoor::mcu::kDefaultPingNonce);
+    assert(frameParser.parseFrame(pingFrame, frame, error));
+    assert(frame.type == outdoor::mcu::McuFrameType::CommandPing);
+    assert(frame.sequence == 11U);
+    assert(frame.payload.size() == outdoor::mcu::kCommandPingPayloadSize);
+
+    const auto ackFrame = buildFrame(
+        outdoor::mcu::McuFrameType::CommandAck,
+        12U,
+        buildCommandAckPayload(
+            static_cast<std::uint8_t>(outdoor::mcu::McuFrameType::CommandPing),
+            0U,
+            outdoor::mcu::kDefaultPingNonce));
+    assert(frameParser.parseFrame(ackFrame, frame, error));
+    assert(frameParser.applyFrame(frame, status, error));
+    assert(status.commandAckSeen);
+    assert(status.lastSequence == 12U);
+    assert(status.lastFrameType == "command_ack");
+    assert(status.commandAckRequestType == static_cast<std::uint8_t>(outdoor::mcu::McuFrameType::CommandPing));
+    assert(status.commandAckStatus == 0U);
+    assert(status.commandAckNonce == outdoor::mcu::kDefaultPingNonce);
 
     auto invalidCrcFrame = imuFrame;
     invalidCrcFrame.back() ^= 0xFFU;

@@ -15,6 +15,7 @@ struct AppConfig {
     std::string mcuSerialDevice = "/dev/ttySTM1";
     std::uint32_t mcuSerialBaud = 115200;
     std::uint32_t mcuSerialCaptureSeconds = 5;
+    std::string mcuCommand = "none";
     std::string statusOutputPath = "runtime/runtime_status.json";
     bool boardImuEnabled = false;
     std::string boardImuSource = "char_device";
