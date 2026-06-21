@@ -80,7 +80,7 @@ dashboard_refresh_interval_ms = 1000
 ./outdoor_core_runtime --config config/runtime.conf --gnss-input-mode serial --gnss-serial-device /dev/ttySTM2 --gnss-serial-baud 9600
 ```
 
-当前 NMEA parser 支持 RMC/GGA/VTG/GSA/GSV，可输出经纬度、海拔、速度、航向、卫星数、fix quality/type 和 DOP。`outdoor-agent` 仪表盘默认输出到 `runtime/dashboard.txt`，也可通过 `--dashboard-output-mode framebuffer|both --dashboard-framebuffer-device /dev/fb0` 直接渲染到 7 英寸 RGB 屏 framebuffer。当前界面只显示高级感仪表盘和 `AI LOCAL AGENT: PLANNED` 预留区，尚未实现真实 AI Agent 本地部署或交互。
+当前 NMEA parser 支持 RMC/GGA/VTG/GSA/GSV，可输出经纬度、海拔、速度、航向、卫星数、fix quality/type 和 DOP。`outdoor-agent` 仪表盘默认输出到 `runtime/dashboard.txt`，也可通过 `--dashboard-output-mode framebuffer|both --dashboard-framebuffer-device /dev/fb0` 直接渲染到 7 英寸 RGB 屏 framebuffer。当前 framebuffer 界面已按深色科技风参考图实现左侧导航、顶部状态栏、方向罗盘、大速度表、位置地图、温度/光照展示区和底部状态栏；其中光照、空气质量、电池、信号等暂为 UI 占位/演示指标，尚未接入真实传感器或电源管理数据。真实 AI Agent 本地部署或交互仍未实现。
 
 ## F407 固件状态
 

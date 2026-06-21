@@ -1,5 +1,41 @@
 ﻿# Dev Log
 
+## 2026-06-22 - Reference-style outdoor-agent Dashboard Layout
+
+### 本次完成
+
+- 按用户提供的仪表盘示意图升级 `outdoor-agent` framebuffer 视觉布局。
+- 新增轻量 fbdev 绘制 primitive：矩形描边、直线/粗线、圆、圆弧、仪表盘刻度、地图网格、条形图等。
+- 7 英寸 RGB 屏布局调整为：左侧导航栏、顶部状态栏、方向罗盘、大速度表、位置地图、温度面板、光照展示区和底部设备状态栏。
+- 继续保持无第三方 GUI 依赖，沿用 Linux fbdev `/dev/fb0` 直接绘制路径。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0010-use-nmea-uart5-text-dashboard.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+
+### 验证结果
+
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过，5/5 tests passed。
+- `powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过。
+- `cmake --build mp157/outdoor-core-service/build-arm` 通过。
+- `git diff --check` 通过。
+- MP157 COM3 上板验证通过：通过 XMODEM 传输当前 ARM runtime 包，包大小 `91737` bytes，SHA256 校验为 `f32a2aa049a4be72535894ef1922eb7e81a79aae3f8f00319ddb10a62d546086`。
+- 板端运行 `./outdoor_core_runtime --config config/runtime.conf --board-imu --dashboard-output-mode both --dashboard-framebuffer-device /dev/fb0 --dashboard-refresh-count 2 --dashboard-refresh-interval-ms 300`，日志确认 `Dashboard rendered to framebuffer: /dev/fb0` 输出 2 次。
+- 板端 `runtime/dashboard.txt` 验证可见 `outdoor-agent`、`ai_agent_state: planned`、`[AI Local Agent]`、`source: file` 和 `source: icm20608_char`。
+
+### 后续 TODO
+
+- 光照、空气质量、电池、信号等展示项当前仍是 UI 占位/演示指标，后续需要接入真实传感器或系统状态来源。
+- 当前仍是轻量 fbdev 原型，不包含触摸交互、窗口系统或完整 GUI 控件。
+
 ## 2026-06-21 - outdoor-agent 7-inch RGB Framebuffer Dashboard
 
 ### 本次完成

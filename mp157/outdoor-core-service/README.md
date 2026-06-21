@@ -81,7 +81,7 @@ runtime/dashboard.txt
 ./outdoor_core_runtime --config config/runtime.conf --board-imu --dashboard-output-mode both --dashboard-framebuffer-device /dev/fb0 --dashboard-refresh-count 3 --dashboard-refresh-interval-ms 500
 ```
 
-当前屏幕 APP 名称为 `outdoor-agent`，显示 GNSS、F407 Sensor Hub、MP157 Board IMU 和 `AI LOCAL AGENT: PLANNED` 预留区；真实 AI Agent 本地部署和交互后续实现。
+当前屏幕 APP 名称为 `outdoor-agent`，framebuffer 版本按深色科技风参考图组织为左侧导航、顶部状态栏、方向罗盘、大速度表、位置地图、温度/光照展示区和底部状态栏。真实数据来源仍以 GNSS、F407 Sensor Hub 和 MP157 Board IMU 为主；光照、空气质量、电池、信号等是 UI 占位/演示指标，真实 AI Agent 本地部署和交互后续实现。
 
 UBLOX-M10 UART5 软件路径运行方式：
 

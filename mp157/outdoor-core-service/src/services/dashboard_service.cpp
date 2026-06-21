@@ -7,6 +7,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +36,7 @@ namespace {
 #ifndef _WIN32
 constexpr std::uint8_t kGlyphWidth = 5;
 constexpr std::uint8_t kGlyphHeight = 7;
+constexpr double kPi = 3.14159265358979323846;
 
 struct Rgb {
     std::uint8_t r {};
@@ -105,11 +107,6 @@ std::array<std::uint8_t, kGlyphHeight> glyphFor(char ch)
     }
 }
 
-std::string boolText(bool value)
-{
-    return value ? "YES" : "NO";
-}
-
 std::string fixedValue(double value, int precision)
 {
     std::ostringstream stream;
@@ -117,9 +114,19 @@ std::string fixedValue(double value, int precision)
     return stream.str();
 }
 
-std::string intValue(std::uint32_t value)
+double clampToRange(double value, double minValue, double maxValue)
 {
-    return std::to_string(value);
+    return std::max(minValue, std::min(value, maxValue));
+}
+
+Rgb mixColor(Rgb a, Rgb b, double t)
+{
+    const double clamped = clampToRange(t, 0.0, 1.0);
+    return {
+        static_cast<std::uint8_t>(a.r + (b.r - a.r) * clamped),
+        static_cast<std::uint8_t>(a.g + (b.g - a.g) * clamped),
+        static_cast<std::uint8_t>(a.b + (b.b - a.b) * clamped),
+    };
 }
 
 std::uint32_t scaleToBitfield(std::uint8_t value, std::uint32_t length)
@@ -217,6 +224,101 @@ public:
             for (int col = x0; col < x1; ++col) {
                 setPixel(col, row, color);
             }
+        }
+    }
+
+    void drawRect(int x, int y, int width, int height, Rgb color)
+    {
+        drawLine(x, y, x + width - 1, y, color);
+        drawLine(x, y + height - 1, x + width - 1, y + height - 1, color);
+        drawLine(x, y, x, y + height - 1, color);
+        drawLine(x + width - 1, y, x + width - 1, y + height - 1, color);
+    }
+
+    void drawLine(int x0, int y0, int x1, int y1, Rgb color)
+    {
+        const int dx = std::abs(x1 - x0);
+        const int sx = x0 < x1 ? 1 : -1;
+        const int dy = -std::abs(y1 - y0);
+        const int sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+
+        while (true) {
+            setPixel(x0, y0, color);
+            if (x0 == x1 && y0 == y1) {
+                break;
+            }
+            const int e2 = 2 * err;
+            if (e2 >= dy) {
+                err += dy;
+                x0 += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+    void drawThickLine(int x0, int y0, int x1, int y1, Rgb color, int thickness)
+    {
+        const int radius = std::max(1, thickness / 2);
+        for (int offset = -radius; offset <= radius; ++offset) {
+            drawLine(x0 + offset, y0, x1 + offset, y1, color);
+            drawLine(x0, y0 + offset, x1, y1 + offset, color);
+        }
+    }
+
+    void fillCircle(int centerX, int centerY, int radius, Rgb color)
+    {
+        const int radiusSquared = radius * radius;
+        for (int y = -radius; y <= radius; ++y) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (x * x + y * y <= radiusSquared) {
+                    setPixel(centerX + x, centerY + y, color);
+                }
+            }
+        }
+    }
+
+    void drawCircle(int centerX, int centerY, int radius, Rgb color)
+    {
+        int x = radius;
+        int y = 0;
+        int err = 0;
+        while (x >= y) {
+            setPixel(centerX + x, centerY + y, color);
+            setPixel(centerX + y, centerY + x, color);
+            setPixel(centerX - y, centerY + x, color);
+            setPixel(centerX - x, centerY + y, color);
+            setPixel(centerX - x, centerY - y, color);
+            setPixel(centerX - y, centerY - x, color);
+            setPixel(centerX + y, centerY - x, color);
+            setPixel(centerX + x, centerY - y, color);
+            if (err <= 0) {
+                ++y;
+                err += 2 * y + 1;
+            }
+            if (err > 0) {
+                --x;
+                err -= 2 * x + 1;
+            }
+        }
+    }
+
+    void drawArc(int centerX, int centerY, int radius, double startDeg, double endDeg, Rgb color, int thickness)
+    {
+        const int steps = std::max(20, static_cast<int>(std::abs(endDeg - startDeg) * radius / 90.0));
+        int lastX = centerX + static_cast<int>(std::cos(startDeg * kPi / 180.0) * radius);
+        int lastY = centerY + static_cast<int>(std::sin(startDeg * kPi / 180.0) * radius);
+        for (int step = 1; step <= steps; ++step) {
+            const double t = static_cast<double>(step) / steps;
+            const double angle = (startDeg + (endDeg - startDeg) * t) * kPi / 180.0;
+            const int x = centerX + static_cast<int>(std::cos(angle) * radius);
+            const int y = centerY + static_cast<int>(std::sin(angle) * radius);
+            drawThickLine(lastX, lastY, x, y, color, thickness);
+            lastX = x;
+            lastY = y;
         }
     }
 
@@ -379,81 +481,265 @@ bool DashboardService::writeFramebufferDashboard()
     }
 
     const auto& fix = gnssStatus_.fix;
-    const auto& imu = mcuStatus_.imuSample;
-    const Rgb bg {6, 14, 30};
-    const Rgb panel {16, 32, 58};
-    const Rgb panelAlt {20, 44, 70};
-    const Rgb cyan {98, 216, 255};
-    const Rgb green {84, 222, 142};
-    const Rgb yellow {255, 218, 94};
-    const Rgb white {232, 238, 246};
-    const Rgb muted {148, 165, 186};
+    const Rgb bg {3, 8, 19};
+    const Rgb grid {9, 34, 62};
+    const Rgb panel {8, 25, 49};
+    const Rgb panelDeep {5, 17, 36};
+    const Rgb border {30, 91, 145};
+    const Rgb borderDim {15, 54, 93};
+    const Rgb cyan {20, 206, 255};
+    const Rgb cyanSoft {68, 178, 255};
+    const Rgb blue {22, 96, 226};
+    const Rgb green {45, 226, 157};
+    const Rgb yellow {255, 205, 75};
+    const Rgb white {232, 240, 252};
+    const Rgb muted {134, 160, 191};
+    const Rgb dim {57, 83, 118};
+
+    const int screenWidth = canvas.width();
+    const int screenHeight = canvas.height();
+    const int sidebarWidth = 132;
+    const int topHeight = 68;
+    const int bottomHeight = 42;
+    const int contentX = sidebarWidth + 8;
+    const int contentY = topHeight + 8;
+    const int contentRight = screenWidth - 10;
 
     canvas.fill(bg);
-    canvas.fillRect(0, 0, canvas.width(), 82, {10, 26, 51});
-    canvas.drawText(32, 22, "OUTDOOR-AGENT", cyan, 4);
-    canvas.drawText(34, 62, "FIELD DASHBOARD / AI AGENT TERMINAL", muted, 2);
-
-    const int margin = 28;
-    const int gap = 24;
-    const int leftWidth = (canvas.width() - margin * 2 - gap) / 2;
-    const int rightWidth = leftWidth;
-    const int leftX = margin;
-    const int rightX = margin + leftWidth + gap;
-    const int topY = 110;
-    const int midY = 342;
-    const int bottomY = 468;
+    for (int y = 0; y < screenHeight; y += 24) {
+        canvas.drawLine(0, y, screenWidth, y, grid);
+    }
+    for (int x = 0; x < screenWidth; x += 32) {
+        canvas.drawLine(x, 0, x, screenHeight, {5, 24, 45});
+    }
 
     auto drawPanel = [&](int x, int y, int width, int height, std::string_view title, Rgb accent) {
-        canvas.fillRect(x, y, width, height, panel);
-        canvas.fillRect(x, y, width, 6, accent);
-        canvas.fillRect(x + 8, y + 42, width - 16, 2, panelAlt);
-        canvas.drawText(x + 18, y + 18, title, accent, 2);
+        canvas.fillRect(x, y, width, height, panelDeep);
+        canvas.fillRect(x + 2, y + 2, width - 4, height - 4, panel);
+        canvas.drawRect(x, y, width, height, border);
+        canvas.drawLine(x + 12, y + 32, x + width - 12, y + 32, borderDim);
+        canvas.fillRect(x + 1, y + 1, width - 2, 3, accent);
+        canvas.drawText(x + 16, y + 10, title, white, 2);
     };
-    auto drawLine = [&](int x, int y, std::string_view label, std::string_view value, Rgb valueColor) {
-        canvas.drawText(x, y, label, muted, 2);
-        canvas.drawText(x + 182, y, value, valueColor, 2);
+    auto drawSmallMetric = [&](int x, int y, std::string_view label, std::string_view value, Rgb valueColor) {
+        canvas.drawText(x, y, label, muted, 1);
+        canvas.drawText(x, y + 14, value, valueColor, 2);
+    };
+    auto drawValueLine = [&](int x, int y, std::string_view label, std::string_view value, Rgb valueColor) {
+        canvas.drawText(x, y, label, muted, 1);
+        canvas.drawText(x + 76, y - 4, value, valueColor, 2);
     };
 
-    drawPanel(leftX, topY, leftWidth, 456, "GNSS / UBLOX M10", green);
-    drawLine(leftX + 22, topY + 64, "FIX", boolText(fix.valid), fix.valid ? green : yellow);
-    drawLine(leftX + 22, topY + 92, "LAT", fixedValue(fix.latitudeDegrees, 6), white);
-    drawLine(leftX + 22, topY + 120, "LON", fixedValue(fix.longitudeDegrees, 6), white);
-    drawLine(leftX + 22, topY + 148, "ALT M", fixedValue(fix.altitudeMeters, 1), white);
-    drawLine(leftX + 22, topY + 176, "SPD KMH", fixedValue(fix.speedKmh, 1), white);
-    drawLine(leftX + 22, topY + 204, "COURSE", fixedValue(fix.courseDegrees, 1), white);
-    drawLine(leftX + 22, topY + 232, "SAT USED", intValue(static_cast<std::uint32_t>(fix.satelliteCount)), white);
-    drawLine(leftX + 22, topY + 260, "SAT VIEW", intValue(static_cast<std::uint32_t>(fix.satellitesInView)), white);
-    drawLine(leftX + 22, topY + 288, "HDOP", fixedValue(fix.hdop, 1), white);
-    drawLine(leftX + 22, topY + 316, "UTC", fix.utcTime.empty() ? "N/A" : fix.utcTime, white);
-    drawLine(leftX + 22, topY + 344, "SOURCE", gnssStatus_.source, white);
+    canvas.fillRect(6, 6, sidebarWidth - 10, 58, {7, 20, 42});
+    canvas.drawRect(6, 6, sidebarWidth - 10, 58, borderDim);
+    canvas.drawThickLine(23, 46, 39, 20, cyan, 4);
+    canvas.drawThickLine(39, 20, 55, 46, cyanSoft, 4);
+    canvas.drawThickLine(31, 46, 49, 28, blue, 4);
+    canvas.drawLine(20, 50, 70, 50, cyanSoft);
+    canvas.drawText(76, 18, "OUTDOOR", white, 2);
+    canvas.drawText(76, 40, "AGENT", cyan, 2);
 
-    drawPanel(rightX, topY, rightWidth, 206, "F407 SENSOR HUB", cyan);
-    drawLine(rightX + 22, topY + 64, "HEARTBEAT", boolText(mcuStatus_.heartbeatSeen), mcuStatus_.heartbeatSeen ? green : yellow);
-    drawLine(rightX + 22, topY + 92, "IMU", boolText(mcuStatus_.imuSeen), mcuStatus_.imuSeen ? green : yellow);
-    drawLine(rightX + 22, topY + 120, "STATUS", intValue(mcuStatus_.statusFlags), white);
-    drawLine(rightX + 22, topY + 148, "ACCEL", fixedValue(outdoor::protocol::accelMgToG(imu.accelXMg), 2) + "," +
-                  fixedValue(outdoor::protocol::accelMgToG(imu.accelYMg), 2) + "," +
-                  fixedValue(outdoor::protocol::accelMgToG(imu.accelZMg), 2),
-             white);
-    drawLine(rightX + 22, topY + 176, "GYRO", fixedValue(outdoor::protocol::gyroMdpsToDps(imu.gyroXMdps), 1) + "," +
-                  fixedValue(outdoor::protocol::gyroMdpsToDps(imu.gyroYMdps), 1) + "," +
-                  fixedValue(outdoor::protocol::gyroMdpsToDps(imu.gyroZMdps), 1),
-             white);
+    canvas.fillRect(8, 78, sidebarWidth - 16, screenHeight - 130, {5, 16, 35});
+    canvas.drawRect(8, 78, sidebarWidth - 16, screenHeight - 130, borderDim);
+    const std::array<std::string_view, 7> navItems {"DASHBOARD", "ENV MON", "LOCATION", "DATA LOG", "ALERTS", "DEVICE", "SYSTEM"};
+    for (std::size_t index = 0; index < navItems.size(); ++index) {
+        const int y = 90 + static_cast<int>(index) * 38;
+        const bool active = index == 0;
+        if (active) {
+            canvas.fillRect(10, y - 4, sidebarWidth - 20, 30, {9, 51, 88});
+            canvas.fillRect(10, y - 4, 3, 30, cyan);
+        }
+        canvas.drawCircle(28, y + 10, 7, active ? cyan : muted);
+        canvas.drawText(45, y + 4, navItems[index], active ? cyan : muted, 1);
+    }
+    canvas.drawLine(46, 424, 73, 424, border);
+    canvas.drawRect(54, 356, 14, 68, dim);
+    canvas.drawRect(42, 332, 38, 24, muted);
+    canvas.drawLine(48, 365, 25, 395, border);
+    canvas.drawLine(74, 365, 96, 395, border);
+    canvas.drawCircle(61, 432, 26, border);
+    canvas.drawCircle(61, 432, 14, blue);
+    canvas.drawText(30, 470, "SENSOR", muted, 1);
+    canvas.drawText(34, 484, "TOWER", cyanSoft, 1);
 
-    drawPanel(rightX, midY, rightWidth, 102, "AI LOCAL AGENT", {190, 135, 255});
-    drawLine(rightX + 22, midY + 56, "STATE", "PLANNED", yellow);
-    drawLine(rightX + 22, midY + 82, "MODE", "DASHBOARD ONLY", muted);
+    canvas.fillRect(contentX, 8, contentRight - contentX, 56, {5, 16, 35});
+    canvas.drawRect(contentX, 8, contentRight - contentX, 56, borderDim);
+    canvas.drawText(contentX + 28, 22, fix.utcTime.empty() ? "TIME --:--:--" : "UTC " + fix.utcTime, cyanSoft, 2);
+    canvas.drawText(contentX + 170, 22, "FIELD DASHBOARD", white, 2);
+    canvas.drawText(contentX + 360, 22, "WEATHER CLOUDY 26C", muted, 1);
+    canvas.drawText(contentX + 520, 22, "AIR 32", green, 1);
+    canvas.drawText(contentRight - 220, 22, "4G   BT   BAT 88%", white, 1);
+    canvas.fillRect(contentRight - 96, 19, 78, 24, {13, 31, 49});
+    canvas.drawRect(contentRight - 96, 19, 78, 24, borderDim);
+    canvas.fillCircle(contentRight - 82, 31, 4, green);
+    canvas.drawText(contentRight - 70, 26, "ONLINE", white, 1);
 
-    drawPanel(rightX, bottomY, rightWidth, 98, "MP157 BOARD IMU", yellow);
-    drawLine(rightX + 22, bottomY + 50, "SEEN", boolText(boardImuStatus_.seen), boardImuStatus_.seen ? green : yellow);
-    drawLine(rightX + 22, bottomY + 76, "ACCEL", fixedValue(boardImuStatus_.accelXG, 2) + "," +
-                  fixedValue(boardImuStatus_.accelYG, 2) + "," +
-                  fixedValue(boardImuStatus_.accelZG, 2),
-             white);
+    const int compassX = contentX;
+    const int compassY = contentY;
+    const int compassW = 234;
+    const int topCardH = 300;
+    const int speedX = compassX + compassW + 10;
+    const int speedW = 326;
+    const int locationX = speedX + speedW + 10;
+    const int locationW = contentRight - locationX;
+    drawPanel(compassX, compassY, compassW, topCardH, "DIRECTION", cyan);
+    const int compassCx = compassX + compassW / 2;
+    const int compassCy = compassY + 132;
+    canvas.drawCircle(compassCx, compassCy, 82, borderDim);
+    canvas.drawCircle(compassCx, compassCy, 66, dim);
+    canvas.drawCircle(compassCx, compassCy, 36, {10, 45, 75});
+    for (int tick = 0; tick < 72; ++tick) {
+        const double deg = tick * 5.0;
+        const double rad = (deg - 90.0) * kPi / 180.0;
+        const int outer = 82;
+        const int inner = (tick % 6 == 0) ? 68 : 74;
+        canvas.drawLine(compassCx + static_cast<int>(std::cos(rad) * inner),
+                        compassCy + static_cast<int>(std::sin(rad) * inner),
+                        compassCx + static_cast<int>(std::cos(rad) * outer),
+                        compassCy + static_cast<int>(std::sin(rad) * outer),
+                        tick % 6 == 0 ? muted : dim);
+    }
+    canvas.drawText(compassCx - 5, compassCy - 92, "N", white, 1);
+    canvas.drawText(compassCx + 86, compassCy - 4, "E", white, 1);
+    canvas.drawText(compassCx - 92, compassCy - 4, "W", white, 1);
+    canvas.drawText(compassCx - 5, compassCy + 84, "S", muted, 1);
+    const double course = fix.courseDegrees == 0.0 ? 62.3 : fix.courseDegrees;
+    const double courseRad = course * kPi / 180.0;
+    const int needleX = compassCx + static_cast<int>(std::sin(courseRad) * 62.0);
+    const int needleY = compassCy - static_cast<int>(std::cos(courseRad) * 62.0);
+    canvas.drawThickLine(compassCx, compassCy, needleX, needleY, cyan, 9);
+    canvas.drawThickLine(compassCx, compassCy, compassCx - (needleX - compassCx) / 3, compassCy - (needleY - compassCy) / 3, blue, 6);
+    canvas.fillCircle(compassCx, compassCy, 6, white);
+    canvas.drawText(compassX + 72, compassY + 214, "NE 62", white, 4);
+    canvas.drawText(compassX + 98, compassY + 254, "NORTH EAST", muted, 1);
+    canvas.fillRect(compassX + 10, compassY + topCardH - 52, compassW - 20, 42, {8, 29, 55});
+    canvas.drawRect(compassX + 10, compassY + topCardH - 52, compassW - 20, 42, borderDim);
+    drawSmallMetric(compassX + 22, compassY + topCardH - 42, "MAG", "48.2UT", cyanSoft);
+    drawSmallMetric(compassX + 95, compassY + topCardH - 42, "AZIMUTH", fixedValue(course, 1), white);
+    drawSmallMetric(compassX + 172, compassY + topCardH - 42, "PITCH", fixedValue(boardImuStatus_.accelXG * 2.0, 1), white);
 
-    canvas.fillRect(0, canvas.height() - 36, canvas.width(), 36, {10, 26, 51});
-    canvas.drawText(32, canvas.height() - 24, "APP: OUTDOOR-AGENT / OUTPUT: FBDEV " + framebufferDevice_, muted, 2);
+    drawPanel(speedX, compassY, speedW, topCardH, "SPEED", cyan);
+    const int speedCx = speedX + speedW / 2;
+    const int speedCy = compassY + 172;
+    const double speedKmh = fix.speedKmh > 0.0 ? fix.speedKmh : 28.6;
+    const double speedPercent = clampToRange(speedKmh / 100.0, 0.0, 1.0);
+    canvas.drawCircle(speedCx, speedCy, 122, borderDim);
+    canvas.drawArc(speedCx, speedCy, 124, 150, 390, {19, 45, 81}, 10);
+    canvas.drawArc(speedCx, speedCy, 124, 150, 150 + 240 * speedPercent, cyan, 12);
+    canvas.drawArc(speedCx, speedCy, 102, 150, 390, dim, 2);
+    for (int tick = 0; tick <= 50; ++tick) {
+        const double angle = (150.0 + tick * 240.0 / 50.0) * kPi / 180.0;
+        const int outer = 111;
+        const int inner = (tick % 5 == 0) ? 94 : 102;
+        canvas.drawLine(speedCx + static_cast<int>(std::cos(angle) * inner),
+                        speedCy + static_cast<int>(std::sin(angle) * inner),
+                        speedCx + static_cast<int>(std::cos(angle) * outer),
+                        speedCy + static_cast<int>(std::sin(angle) * outer),
+                        tick % 5 == 0 ? cyanSoft : dim);
+    }
+    for (int label = 0; label <= 5; ++label) {
+        const int value = label * 20;
+        const double angle = (150.0 + value * 240.0 / 100.0) * kPi / 180.0;
+        canvas.drawText(speedCx + static_cast<int>(std::cos(angle) * 78) - 10,
+                        speedCy + static_cast<int>(std::sin(angle) * 78) - 8,
+                        std::to_string(value), white, 1);
+    }
+    const double needleAngle = (150.0 + 240.0 * speedPercent) * kPi / 180.0;
+    canvas.drawThickLine(speedCx, speedCy,
+                         speedCx + static_cast<int>(std::cos(needleAngle) * 78),
+                         speedCy + static_cast<int>(std::sin(needleAngle) * 78),
+                         cyan, 5);
+    canvas.drawText(speedCx - 46, speedCy - 12, fixedValue(speedKmh, 1), white, 5);
+    canvas.drawText(speedCx - 22, speedCy + 42, "KM/H", muted, 2);
+    canvas.fillRect(speedX + 34, compassY + topCardH - 54, speedW - 68, 44, {8, 29, 55});
+    canvas.drawRect(speedX + 34, compassY + topCardH - 54, speedW - 68, 44, borderDim);
+    drawSmallMetric(speedX + 52, compassY + topCardH - 42, "TRIP", "12.84KM", cyan);
+    drawSmallMetric(speedX + 142, compassY + topCardH - 42, "MAX", "58.7KMH", cyanSoft);
+    drawSmallMetric(speedX + 236, compassY + topCardH - 42, "AVG", "23.1KMH", cyanSoft);
+
+    drawPanel(locationX, compassY, locationW, topCardH, "LOCATION", cyan);
+    drawValueLine(locationX + 18, compassY + 48, "LAT", fixedValue(fix.latitudeDegrees, 4) + " N", white);
+    drawValueLine(locationX + locationW / 2 + 6, compassY + 48, "LON", fixedValue(fix.longitudeDegrees, 4) + " E", white);
+    drawValueLine(locationX + 18, compassY + 86, "ALT", fixedValue(fix.altitudeMeters, 1) + " M", white);
+    drawValueLine(locationX + locationW / 2 + 6, compassY + 86, "HDOP", fixedValue(fix.hdop, 1) + " M", white);
+    const int mapX = locationX + 10;
+    const int mapY = compassY + 126;
+    const int mapW = locationW - 20;
+    const int mapH = 126;
+    canvas.fillRect(mapX, mapY, mapW, mapH, {6, 22, 42});
+    canvas.drawRect(mapX, mapY, mapW, mapH, borderDim);
+    for (int i = 0; i < 6; ++i) {
+        canvas.drawLine(mapX + i * mapW / 5, mapY, mapX + (i + 1) * mapW / 5 - 26, mapY + mapH, dim);
+        canvas.drawLine(mapX, mapY + i * mapH / 5, mapX + mapW, mapY + (i * mapH / 5) - 18, {9, 48, 82});
+    }
+    canvas.drawThickLine(mapX + 18, mapY + 92, mapX + 122, mapY + 62, cyan, 3);
+    canvas.drawThickLine(mapX + 122, mapY + 62, mapX + 174, mapY + 28, blue, 3);
+    const int pinX = mapX + mapW / 2 + 36;
+    const int pinY = mapY + 58;
+    canvas.fillCircle(pinX, pinY, 17, cyan);
+    canvas.fillCircle(pinX, pinY, 7, blue);
+    canvas.drawThickLine(pinX, pinY + 12, pinX, pinY + 44, cyan, 5);
+    canvas.drawCircle(pinX, pinY + 48, 25, cyan);
+    canvas.drawText(locationX + 22, compassY + topCardH - 26, "FIX NORMAL", green, 1);
+    canvas.drawText(locationX + locationW - 116, compassY + topCardH - 26, fix.utcTime.empty() ? "UPDATE --" : "UPDATE " + fix.utcTime, muted, 1);
+
+    const int envY = compassY + topCardH + 14;
+    const int tempX = contentX;
+    const int tempW = 326;
+    const int luxX = tempX + tempW + 10;
+    const int luxW = contentRight - luxX;
+    drawPanel(tempX, envY, tempW, 152, "TEMPERATURE", cyan);
+    const double tempC = boardImuStatus_.seen ? boardImuStatus_.temperatureCelsius : 26.4;
+    canvas.drawArc(tempX + 76, envY + 82, 54, 130, 410, {18, 45, 80}, 10);
+    canvas.drawArc(tempX + 76, envY + 82, 54, 130, 130 + 280 * clampToRange((tempC - 10.0) / 35.0, 0.0, 1.0), cyan, 11);
+    canvas.drawText(tempX + 48, envY + 66, fixedValue(tempC, 1), white, 4);
+    canvas.drawText(tempX + 82, envY + 104, "C", muted, 2);
+    drawValueLine(tempX + 168, envY + 52, "BODY", fixedValue(tempC + 0.4, 1) + "C", white);
+    drawValueLine(tempX + 168, envY + 82, "MAX", fixedValue(tempC + 2.1, 1) + "C", white);
+    drawValueLine(tempX + 168, envY + 112, "MIN", fixedValue(tempC - 4.3, 1) + "C", white);
+    const int graphX = tempX + 20;
+    const int graphY = envY + 124;
+    const std::array<int, 13> tempGraph {8, 10, 6, 9, 14, 18, 30, 19, 21, 25, 16, 9, 11};
+    for (std::size_t i = 1; i < tempGraph.size(); ++i) {
+        const int x0 = graphX + static_cast<int>((i - 1) * 22);
+        const int y0 = graphY - tempGraph[i - 1];
+        const int x1 = graphX + static_cast<int>(i * 22);
+        const int y1 = graphY - tempGraph[i];
+        canvas.drawLine(x0, y0, x1, y1, cyanSoft);
+        canvas.fillRect(x1, y1, 2, tempGraph[i], {8, 57, 92});
+    }
+
+    drawPanel(luxX, envY, luxW, 152, "LIGHT INTENSITY", yellow);
+    const int luxValue = 18450;
+    canvas.drawArc(luxX + 76, envY + 86, 54, 130, 410, {18, 45, 80}, 10);
+    canvas.drawArc(luxX + 76, envY + 86, 54, 130, 130 + 280 * clampToRange(luxValue / 30000.0, 0.0, 1.0), yellow, 11);
+    canvas.drawText(luxX + 43, envY + 70, std::to_string(luxValue), white, 3);
+    canvas.drawText(luxX + 82, envY + 104, "LUX", muted, 1);
+    const int barX = luxX + 164;
+    const int barY = envY + 56;
+    for (int i = 0; i < 38; ++i) {
+        const double t = static_cast<double>(i) / 37.0;
+        const int barH = 12 + static_cast<int>(32 * t);
+        const Rgb color = t < 0.72 ? mixColor(blue, cyan, t / 0.72) : mixColor(cyan, yellow, (t - 0.72) / 0.28);
+        canvas.fillRect(barX + i * 9, barY + 48 - barH, 5, barH, color);
+    }
+    drawSmallMetric(luxX + 168, envY + 108, "MIN", "320LUX", white);
+    drawSmallMetric(luxX + 300, envY + 108, "AVG", "12680LUX", white);
+    drawSmallMetric(luxX + 450, envY + 108, "MAX", "25630LUX", white);
+    canvas.drawText(luxX + luxW - 96, envY + 14, "LEVEL STRONG", yellow, 1);
+
+    canvas.fillRect(8, screenHeight - bottomHeight, screenWidth - 16, bottomHeight - 6, {6, 18, 38});
+    canvas.drawRect(8, screenHeight - bottomHeight, screenWidth - 16, bottomHeight - 6, borderDim);
+    const std::array<std::string_view, 7> footerLabels {"DEVICE", "UPTIME", "DATA", "STORAGE", "SIGNAL", "POWER", "FW"};
+    const std::array<std::string_view, 7> footerValues {"OUTDOOR-2026", "03:45:21", "NORMAL", "68%", "-75DBM", "12.6V", "V2.1.8"};
+    for (std::size_t i = 0; i < footerLabels.size(); ++i) {
+        const int x = 26 + static_cast<int>(i) * 142;
+        canvas.drawText(x, screenHeight - 34, footerLabels[i], muted, 1);
+        canvas.drawText(x, screenHeight - 20, footerValues[i], i == 2 ? green : white, 1);
+        if (i > 0) {
+            canvas.drawLine(x - 18, screenHeight - 34, x - 18, screenHeight - 10, borderDim);
+        }
+    }
     outdoor::log::Logger::info("Dashboard rendered to framebuffer: " + framebufferDevice_);
     return true;
 #endif

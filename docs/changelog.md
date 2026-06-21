@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-06-22
+
+### Changed
+
+- Updated the `outdoor-agent` fbdev framebuffer dashboard to follow the provided dark outdoor terminal reference layout.
+- Added custom fbdev drawing primitives for panel borders, line art, circular gauges, arcs, map-style grid lines, bar charts, and bottom status tiles.
+- Reworked the 7-inch RGB screen layout with a left navigation rail, top status bar, direction compass, large speed gauge, location/map panel, temperature panel, light-intensity demo panel, and footer status strip.
+
+### Notes
+
+- GNSS, F407 Sensor Hub, and MP157 Board IMU sections continue to use Runtime data.
+- Light, air-quality, battery, and signal widgets are UI placeholder/demo metrics until the corresponding real sensors or system status providers are integrated.
+
+### Verified
+
+- Local MP157 build, CTest, runtime verification script, ARM cross-build, and `git diff --check` passed.
+- MP157 board validation passed on COM3: current ARM package `91737` bytes matched SHA256 `f32a2aa049a4be72535894ef1922eb7e81a79aae3f8f00319ddb10a62d546086`; the runtime rendered to `/dev/fb0` for 2 refresh cycles and preserved text dashboard markers including `outdoor-agent` and `source: icm20608_char`.
+
 ## 2026-06-21
 
 ### Added
