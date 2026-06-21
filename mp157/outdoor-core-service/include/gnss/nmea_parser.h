@@ -13,6 +13,9 @@ public:
 private:
     bool parseRmc(const std::string& line, GnssFix& fix, std::string& error) const;
     bool parseGga(const std::string& line, GnssFix& fix, std::string& error) const;
+    bool parseVtg(const std::string& line, GnssFix& fix, std::string& error) const;
+    bool parseGsa(const std::string& line, GnssFix& fix, std::string& error) const;
+    bool parseGsv(const std::string& line, GnssFix& fix, std::string& error) const;
 };
 
 std::string formatGnssFix(const GnssFix& fix);

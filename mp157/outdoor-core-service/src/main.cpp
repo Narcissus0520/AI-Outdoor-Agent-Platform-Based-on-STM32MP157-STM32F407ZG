@@ -1,10 +1,13 @@
 #include "config/config_loader.h"
+#include "gnss/gnss_status.h"
 #include "ipc/status_publisher.h"
 #include "log/logger.h"
 #include "mcu/mcu_command.h"
 #include "mcu/mcu_status.h"
 #include "runtime/runtime_manager.h"
+#include "services/dashboard_service.h"
 #include "services/gnss_replay_service.h"
+#include "services/gnss_serial_service.h"
 #include "services/icm20608_service.h"
 #include "services/mcu_mock_service.h"
 #include "services/mcu_serial_service.h"
@@ -30,13 +33,20 @@ void printUsage(const char* programName)
 {
     std::cout << "Usage: " << programName << " [nmea_file]\n"
               << "       " << programName
-              << " [--config path] [--input path] [--mcu-input-mode mock_file|serial]"
+              << " [--config path] [--input path] [--gnss-input-mode file|serial]"
+              << " [--gnss-serial-device path] [--gnss-serial-baud baud]"
+              << " [--gnss-serial-capture-seconds seconds]"
+              << " [--mcu-input-mode mock_file|serial]"
               << " [--mcu-mock-input path] [--mcu-serial-device path]"
               << " [--mcu-serial-baud baud] [--mcu-serial-capture-seconds seconds]"
               << " [--mcu-command none|ping]"
               << " [--status-output path]"
               << " [--board-imu] [--board-imu-source char_device|iio|auto]"
               << " [--board-imu-device-path path] [--board-imu-iio-path path] [--board-imu-samples count]"
+              << " [--dashboard-output path] [--dashboard-output-mode text|framebuffer|both]"
+              << " [--dashboard-framebuffer-device path]"
+              << " [--dashboard-refresh-count count] [--dashboard-refresh-interval-ms ms]"
+              << " [--no-dashboard]"
               << " [--log-level debug|info|warn|error]\n";
 }
 
@@ -75,6 +85,10 @@ int main(int argc, char* argv[])
 
     std::string configPath = kDefaultConfigFile;
     std::string cliInputPath;
+    std::string cliGnssInputMode;
+    std::string cliGnssSerialDevice;
+    std::string cliGnssSerialBaud;
+    std::string cliGnssSerialCaptureSeconds;
     std::string cliMcuInputMode;
     std::string cliMcuMockInputPath;
     std::string cliMcuSerialDevice;
@@ -85,6 +99,12 @@ int main(int argc, char* argv[])
     std::string cliStatusOutputPath;
     bool cliEnableBoardImu = false;
     bool cliDisableBoardImu = false;
+    bool cliDisableDashboard = false;
+    std::string cliDashboardOutputPath;
+    std::string cliDashboardOutputMode;
+    std::string cliDashboardFramebufferDevice;
+    std::string cliDashboardRefreshCount;
+    std::string cliDashboardRefreshIntervalMs;
     std::string cliBoardImuSource;
     std::string cliBoardImuDevicePath;
     std::string cliBoardImuIioPath;
@@ -108,6 +128,30 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliInputPath = argv[++index];
+        } else if (arg == "--gnss-input-mode") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--gnss-input-mode requires file or serial");
+                return 1;
+            }
+            cliGnssInputMode = argv[++index];
+        } else if (arg == "--gnss-serial-device") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--gnss-serial-device requires a device path");
+                return 1;
+            }
+            cliGnssSerialDevice = argv[++index];
+        } else if (arg == "--gnss-serial-baud") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--gnss-serial-baud requires a baud rate");
+                return 1;
+            }
+            cliGnssSerialBaud = argv[++index];
+        } else if (arg == "--gnss-serial-capture-seconds") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--gnss-serial-capture-seconds requires seconds");
+                return 1;
+            }
+            cliGnssSerialCaptureSeconds = argv[++index];
         } else if (arg == "--mcu-mock-input") {
             if (index + 1 >= argc) {
                 outdoor::log::Logger::error("--mcu-mock-input requires a file path");
@@ -180,6 +224,38 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliBoardImuSampleCount = argv[++index];
+        } else if (arg == "--dashboard-output") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--dashboard-output requires a file path");
+                return 1;
+            }
+            cliDashboardOutputPath = argv[++index];
+        } else if (arg == "--dashboard-output-mode") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--dashboard-output-mode requires text, framebuffer, or both");
+                return 1;
+            }
+            cliDashboardOutputMode = argv[++index];
+        } else if (arg == "--dashboard-framebuffer-device") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--dashboard-framebuffer-device requires a device path");
+                return 1;
+            }
+            cliDashboardFramebufferDevice = argv[++index];
+        } else if (arg == "--dashboard-refresh-count") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--dashboard-refresh-count requires a count");
+                return 1;
+            }
+            cliDashboardRefreshCount = argv[++index];
+        } else if (arg == "--dashboard-refresh-interval-ms") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--dashboard-refresh-interval-ms requires milliseconds");
+                return 1;
+            }
+            cliDashboardRefreshIntervalMs = argv[++index];
+        } else if (arg == "--no-dashboard") {
+            cliDisableDashboard = true;
         } else if (arg == "--log-level") {
             if (index + 1 >= argc) {
                 outdoor::log::Logger::error("--log-level requires a value");
@@ -203,6 +279,36 @@ int main(int argc, char* argv[])
 
     if (!cliInputPath.empty()) {
         config.nmeaInputPath = cliInputPath;
+    }
+
+    if (!cliGnssInputMode.empty()) {
+        if (cliGnssInputMode != "file" && cliGnssInputMode != "serial") {
+            outdoor::log::Logger::error("Unsupported --gnss-input-mode value: " + cliGnssInputMode);
+            return 1;
+        }
+        config.gnssInputMode = cliGnssInputMode;
+    }
+
+    if (!cliGnssSerialDevice.empty()) {
+        config.gnssSerialDevice = cliGnssSerialDevice;
+    }
+
+    if (!cliGnssSerialBaud.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliGnssSerialBaud, parsed)) {
+            outdoor::log::Logger::error("Unsupported --gnss-serial-baud value: " + cliGnssSerialBaud);
+            return 1;
+        }
+        config.gnssSerialBaud = static_cast<std::uint32_t>(parsed);
+    }
+
+    if (!cliGnssSerialCaptureSeconds.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliGnssSerialCaptureSeconds, parsed)) {
+            outdoor::log::Logger::error("Unsupported --gnss-serial-capture-seconds value: " + cliGnssSerialCaptureSeconds);
+            return 1;
+        }
+        config.gnssSerialCaptureSeconds = static_cast<std::uint32_t>(parsed);
     }
 
     if (!cliMcuMockInputPath.empty()) {
@@ -285,6 +391,44 @@ int main(int argc, char* argv[])
         config.boardImuSampleCount = parsed;
     }
 
+    if (!cliDashboardOutputPath.empty()) {
+        config.dashboardOutputPath = cliDashboardOutputPath;
+    }
+
+    if (!cliDashboardOutputMode.empty()) {
+        if (cliDashboardOutputMode != "text" && cliDashboardOutputMode != "framebuffer" && cliDashboardOutputMode != "both") {
+            outdoor::log::Logger::error("Unsupported --dashboard-output-mode value: " + cliDashboardOutputMode);
+            return 1;
+        }
+        config.dashboardOutputMode = cliDashboardOutputMode;
+    }
+
+    if (!cliDashboardFramebufferDevice.empty()) {
+        config.dashboardFramebufferDevice = cliDashboardFramebufferDevice;
+    }
+
+    if (!cliDashboardRefreshCount.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliDashboardRefreshCount, parsed)) {
+            outdoor::log::Logger::error("Unsupported --dashboard-refresh-count value: " + cliDashboardRefreshCount);
+            return 1;
+        }
+        config.dashboardRefreshCount = parsed;
+    }
+
+    if (!cliDashboardRefreshIntervalMs.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliDashboardRefreshIntervalMs, parsed)) {
+            outdoor::log::Logger::error("Unsupported --dashboard-refresh-interval-ms value: " + cliDashboardRefreshIntervalMs);
+            return 1;
+        }
+        config.dashboardRefreshIntervalMs = static_cast<std::uint32_t>(parsed);
+    }
+
+    if (cliDisableDashboard) {
+        config.dashboardEnabled = false;
+    }
+
     if (!cliLogLevel.empty()) {
         outdoor::log::LogLevel parsedLevel {};
         if (!outdoor::log::parseLogLevel(cliLogLevel, parsedLevel)) {
@@ -299,7 +443,11 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("Outdoor Core Runtime starting");
     outdoor::log::Logger::info("Config file: " + configPath);
     outdoor::log::Logger::info(std::string("Log level: ") + outdoor::log::logLevelToString(config.logLevel));
+    outdoor::log::Logger::info("GNSS input mode: " + config.gnssInputMode);
     outdoor::log::Logger::info("Input source: " + config.nmeaInputPath);
+    outdoor::log::Logger::info("GNSS serial device: " + config.gnssSerialDevice);
+    outdoor::log::Logger::info("GNSS serial baud: " + std::to_string(config.gnssSerialBaud));
+    outdoor::log::Logger::info("GNSS serial capture seconds: " + std::to_string(config.gnssSerialCaptureSeconds));
     outdoor::log::Logger::info("MCU input mode: " + config.mcuInputMode);
     outdoor::log::Logger::info("MCU mock input source: " + config.mcuMockInputPath);
     outdoor::log::Logger::info("MCU serial device: " + config.mcuSerialDevice);
@@ -311,8 +459,16 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("Board IMU character device path: " + config.boardImuDevicePath);
     outdoor::log::Logger::info("Board IMU IIO path: " + config.boardImuIioPath);
     outdoor::log::Logger::info("Runtime status output: " + config.statusOutputPath);
+    outdoor::log::Logger::info(std::string("Dashboard enabled: ") + (config.dashboardEnabled ? "true" : "false"));
+    outdoor::log::Logger::info("Dashboard output: " + config.dashboardOutputPath);
+    outdoor::log::Logger::info("Dashboard output mode: " + config.dashboardOutputMode);
+    outdoor::log::Logger::info("Dashboard framebuffer device: " + config.dashboardFramebufferDevice);
+    outdoor::log::Logger::info("Dashboard refresh count: " + std::to_string(config.dashboardRefreshCount));
+    outdoor::log::Logger::info("Dashboard refresh interval ms: " + std::to_string(config.dashboardRefreshIntervalMs));
 
     outdoor::runtime::RuntimeManager runtime;
+    outdoor::gnss::GnssStatus gnssStatus;
+    gnssStatus.source = config.gnssInputMode == "serial" ? "uart5" : "file";
     outdoor::mcu::McuStatus mcuStatus;
     outdoor::mcu::McuCommand mcuCommand {};
     if (!outdoor::mcu::parseMcuCommand(config.mcuCommand, mcuCommand)) {
@@ -323,7 +479,15 @@ int main(int argc, char* argv[])
     boardImuStatus.enabled = config.boardImuEnabled;
     boardImuStatus.source = config.boardImuSource == "iio" ? "icm20608_iio" : "icm20608_char";
     boardImuStatus.devicePath = config.boardImuSource == "iio" ? config.boardImuIioPath : config.boardImuDevicePath;
-    runtime.addService(std::make_unique<outdoor::services::GnssReplayService>(config.nmeaInputPath));
+    if (config.gnssInputMode == "serial") {
+        runtime.addService(std::make_unique<outdoor::services::GnssSerialService>(
+            config.gnssSerialDevice,
+            config.gnssSerialBaud,
+            config.gnssSerialCaptureSeconds,
+            gnssStatus));
+    } else {
+        runtime.addService(std::make_unique<outdoor::services::GnssReplayService>(config.nmeaInputPath, gnssStatus));
+    }
     if (config.mcuInputMode == "serial") {
         runtime.addService(std::make_unique<outdoor::services::McuSerialService>(
             config.mcuSerialDevice,
@@ -343,25 +507,40 @@ int main(int argc, char* argv[])
             config.boardImuSampleCount,
             config.boardImuSampleIntervalMs));
     }
+    if (config.dashboardEnabled) {
+        runtime.addService(std::make_unique<outdoor::services::DashboardService>(
+            config.dashboardOutputPath,
+            config.dashboardOutputMode,
+            config.dashboardFramebufferDevice,
+            config.dashboardRefreshCount,
+            config.dashboardRefreshIntervalMs,
+            gnssStatus,
+            mcuStatus,
+            boardImuStatus));
+    }
 
     outdoor::ipc::StatusPublisher statusPublisher(config.statusOutputPath);
+    runtime.setGnssStatus(gnssStatus);
     runtime.setMcuStatus(mcuStatus);
     runtime.setBoardImuStatus(boardImuStatus);
     publishStatus(statusPublisher, runtime.status());
 
     if (!runtime.start()) {
+        runtime.setGnssStatus(gnssStatus);
         runtime.setMcuStatus(mcuStatus);
         runtime.setBoardImuStatus(boardImuStatus);
         publishStatus(statusPublisher, runtime.status());
         outdoor::log::Logger::error("Outdoor Core Runtime failed to start");
         return 1;
     }
+    runtime.setGnssStatus(gnssStatus);
     runtime.setMcuStatus(mcuStatus);
     runtime.setBoardImuStatus(boardImuStatus);
     publishStatus(statusPublisher, runtime.status());
 
     if (!runtime.run()) {
         runtime.stop();
+        runtime.setGnssStatus(gnssStatus);
         runtime.setMcuStatus(mcuStatus);
         runtime.setBoardImuStatus(boardImuStatus);
         publishStatus(statusPublisher, runtime.status());
@@ -370,6 +549,7 @@ int main(int argc, char* argv[])
     }
 
     runtime.stop();
+    runtime.setGnssStatus(gnssStatus);
     runtime.setMcuStatus(mcuStatus);
     runtime.setBoardImuStatus(boardImuStatus);
     publishStatus(statusPublisher, runtime.status());

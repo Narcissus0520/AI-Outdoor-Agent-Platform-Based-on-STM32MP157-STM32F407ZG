@@ -1,4 +1,97 @@
-# Dev Log
+﻿# Dev Log
+
+## 2026-06-21 - outdoor-agent 7-inch RGB Framebuffer Dashboard
+
+### 本次完成
+
+- 将 `DashboardService` 从文本仪表盘原型扩展为 `outdoor-agent` APP 渲染入口。
+- 新增 `dashboard_output_mode = text | framebuffer | both`，默认仍为文本模式，便于 PC 自动化验证。
+- 新增 `dashboard_framebuffer_device = /dev/fb0`，支持直接写入 MP157 7 英寸 RGB 屏 framebuffer。
+- 新增 `dashboard_refresh_count` 和 `dashboard_refresh_interval_ms`，形成可控的屏幕刷新循环。
+- 屏幕界面显示 `outdoor-agent` 标题、GNSS、F407 Sensor Hub、MP157 Board IMU 和 `AI LOCAL AGENT: PLANNED` 预留区。
+- 同步更新 README、设计文档、Stage 1 计划、ADR-0010、changelog 和模块 README。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0010-use-nmea-uart5-text-dashboard.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/config/runtime.conf`
+- `mp157/outdoor-core-service/include/config/app_config.h`
+- `mp157/outdoor-core-service/include/services/dashboard_service.h`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `mp157/outdoor-core-service/src/config/config_loader.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+
+### 验证结果
+
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过，5/5 tests passed。
+- `powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过。
+- `cmake --build mp157/outdoor-core-service/build-arm` 通过。
+- MP157 COM3 上板验证通过：`/dev/fb0` 存在，`/sys/class/graphics/fb0/virtual_size=1024,600`，`bits_per_pixel=16`。
+- 通过 XMODEM 向 MP157 传输当前 ARM runtime 包，包大小 `80025` bytes，SHA256 校验为 `c27907d312d95e1278537e8d8bff20555d81a0d05be8f9c8848d70d6859079c1`。
+- 板端运行 `./outdoor_core_runtime --config config/runtime.conf --board-imu --dashboard-output-mode both --dashboard-framebuffer-device /dev/fb0 --dashboard-refresh-count 3 --dashboard-refresh-interval-ms 500`，日志确认 `Dashboard rendered: runtime/dashboard.txt` 和 `Dashboard rendered to framebuffer: /dev/fb0` 各输出 3 次。
+- 板端 `runtime/dashboard.txt` 验证可见 `outdoor-agent`、`ai_agent_state: planned`、`[AI Local Agent]` 和 `source: icm20608_char`。
+
+### 后续 TODO
+
+- UBLOX-M10 UART5 真实接线和 NMEA 采集仍待上板验证。
+- `outdoor-agent` 当前是轻量 fbdev 仪表盘，不包含触摸交互、窗口系统或真实 AI Agent 本地推理。
+- 后续可把 Runtime 从一次性服务编排演进为常驻进程，并让 dashboard 从实时状态模型持续刷新。
+
+## 2026-06-21 - MP157 UART5 UBLOX-M10 Software Path and Dashboard Prototype
+
+### 本次完成
+
+- 新增 `GnssStatus`，将 GNSS source、fix、语句统计和 last error 纳入 Runtime 状态。
+- 将 `NmeaParser` 从 RMC/GGA 扩展到 RMC/GGA/VTG/GSA/GSV，支持位置、海拔、速度、航向、卫星数、fix type 和 DOP。
+- 新增 `GnssSerialService`，用于在 MP157 Linux 目标上从 UART5 NMEA 串口读取 UBLOX-M10 数据；默认设备 `/dev/ttySTM2`，默认波特率 9600。
+- 新增配置项：`gnss_input_mode`、`gnss_serial_device`、`gnss_serial_baud`、`gnss_serial_capture_seconds`。
+- `runtime_status.json` 新增 `gnss` 字段。
+- 新增 `DashboardService`，默认生成 `runtime/dashboard.txt` 文本仪表盘原型。
+- 新增配置项：`dashboard_enabled`、`dashboard_output_path`。
+- 新增 NMEA parser 单元测试，覆盖 RMC/GGA/VTG/GSA/GSV 和错误 checksum。
+- 新增 ADR-0010，记录先做 UART5 NMEA 输入和文本仪表盘原型的方案取舍。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0010-use-nmea-uart5-text-dashboard.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/CMakeLists.txt`
+- `mp157/outdoor-core-service/config/runtime.conf`
+- `mp157/outdoor-core-service/include/gnss/*`
+- `mp157/outdoor-core-service/include/services/gnss_serial_service.h`
+- `mp157/outdoor-core-service/include/services/dashboard_service.h`
+- `mp157/outdoor-core-service/src/gnss/*`
+- `mp157/outdoor-core-service/src/services/gnss_serial_service.cpp`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+- `mp157/outdoor-core-service/tests/nmea_parser_tests.cpp`
+
+### 验证结果
+
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过，5/5 tests passed。
+- `powershell -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过。
+- 本机默认 file GNSS 模式生成 `runtime/runtime_status_gnss_verify.json` 和 `runtime/dashboard_gnss_verify.txt`，dashboard 中可见 GNSS 经纬度、速度、卫星数、DOP、F407 IMU 和 MP157 board IMU 区块。
+
+### 后续 TODO
+
+- 上板确认 MP157 UART5 对应 Linux 设备节点是否为 `/dev/ttySTM2`。
+- 上板确认 UBLOX-M10 当前输出波特率和 NMEA 语句集合。
+- 完成 UART5 TX/RX/GND 接线和真实 NMEA 采集验证。
+- framebuffer 屏幕显示已在后续 `outdoor-agent` 条目完成；TUI/完整 GUI 可后续评估。
 
 ## 2026-06-20 - MP157 to F407 Ping Ack Prototype
 

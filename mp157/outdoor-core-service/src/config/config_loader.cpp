@@ -112,8 +112,36 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
             return false;
         }
 
-        if (key == "nmea_input_path") {
+        if (key == "gnss_input_mode") {
+            if (value != "file" && value != "serial") {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported gnss_input_mode '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.gnssInputMode = value;
+        } else if (key == "nmea_input_path") {
             config.nmeaInputPath = value;
+        } else if (key == "gnss_serial_device") {
+            config.gnssSerialDevice = value;
+        } else if (key == "gnss_serial_baud") {
+            std::uint32_t parsed = 0;
+            if (!parseUint32(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported gnss_serial_baud '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.gnssSerialBaud = parsed;
+        } else if (key == "gnss_serial_capture_seconds") {
+            std::uint32_t parsed = 0;
+            if (!parseUint32(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported gnss_serial_capture_seconds '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.gnssSerialCaptureSeconds = parsed;
         } else if (key == "mcu_input_mode") {
             if (value != "mock_file" && value != "serial") {
                 std::ostringstream message;
@@ -193,6 +221,45 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
                 return false;
             }
             config.boardImuSampleIntervalMs = parsed;
+        } else if (key == "dashboard_enabled") {
+            bool parsed = false;
+            if (!parseBool(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported dashboard_enabled '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.dashboardEnabled = parsed;
+        } else if (key == "dashboard_output_path") {
+            config.dashboardOutputPath = value;
+        } else if (key == "dashboard_output_mode") {
+            if (value != "text" && value != "framebuffer" && value != "both") {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported dashboard_output_mode '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.dashboardOutputMode = value;
+        } else if (key == "dashboard_framebuffer_device") {
+            config.dashboardFramebufferDevice = value;
+        } else if (key == "dashboard_refresh_count") {
+            std::size_t parsed = 0;
+            if (!parseSize(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported dashboard_refresh_count '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.dashboardRefreshCount = parsed;
+        } else if (key == "dashboard_refresh_interval_ms") {
+            std::uint32_t parsed = 0;
+            if (!parseUint32(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported dashboard_refresh_interval_ms '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.dashboardRefreshIntervalMs = parsed;
         } else if (key == "log_level") {
             outdoor::log::LogLevel parsedLevel {};
             if (!outdoor::log::parseLogLevel(value, parsedLevel)) {

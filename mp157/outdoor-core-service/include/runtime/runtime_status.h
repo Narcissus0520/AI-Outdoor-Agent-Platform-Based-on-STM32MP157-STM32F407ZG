@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gnss/gnss_status.h"
 #include "mcu/mcu_status.h"
 #include "sensors/board_imu_status.h"
 
@@ -22,6 +23,7 @@ struct RuntimeStatus {
     std::size_t serviceCount = 0;
     std::size_t startedServiceCount = 0;
     std::string lastError;
+    outdoor::gnss::GnssStatus gnssStatus;
     outdoor::mcu::McuStatus mcuStatus;
     outdoor::sensors::BoardImuStatus boardImuStatus;
 };

@@ -160,6 +160,15 @@ bool NmeaParser::parseLine(const std::string& line, GnssFix& fix, std::string& e
     if (type == "GGA") {
         return parseGga(line, fix, error);
     }
+    if (type == "VTG") {
+        return parseVtg(line, fix, error);
+    }
+    if (type == "GSA") {
+        return parseGsa(line, fix, error);
+    }
+    if (type == "GSV") {
+        return parseGsv(line, fix, error);
+    }
 
     return false;
 }
@@ -197,6 +206,7 @@ bool NmeaParser::parseRmc(const std::string& line, GnssFix& fix, std::string& er
     fix.latitudeDegrees = latitude;
     fix.longitudeDegrees = longitude;
     fix.speedKnots = speed;
+    fix.speedKmh = speed * 1.852;
     return true;
 }
 
@@ -242,6 +252,105 @@ bool NmeaParser::parseGga(const std::string& line, GnssFix& fix, std::string& er
     fix.fixQuality = fixQuality;
     fix.satelliteCount = satellites;
     fix.altitudeMeters = altitude;
+    if (fields.size() > 8) {
+        double hdop = 0.0;
+        if (!fields[8].empty() && parseDouble(fields[8], hdop)) {
+            fix.hdop = hdop;
+        }
+    }
+    return true;
+}
+
+bool NmeaParser::parseVtg(const std::string& line, GnssFix& fix, std::string& error) const
+{
+    const auto fields = splitFields(line);
+    if (fields.size() < 9) {
+        error = "VTG sentence has too few fields";
+        return false;
+    }
+
+    double course = 0.0;
+    if (!fields[1].empty()) {
+        if (!parseDouble(fields[1], course)) {
+            error = "VTG course parse failed";
+            return false;
+        }
+        fix.courseDegrees = course;
+    }
+
+    double speedKnots = 0.0;
+    if (!fields[5].empty()) {
+        if (!parseDouble(fields[5], speedKnots)) {
+            error = "VTG speed knots parse failed";
+            return false;
+        }
+        fix.speedKnots = speedKnots;
+    }
+
+    double speedKmh = 0.0;
+    if (!fields[7].empty()) {
+        if (!parseDouble(fields[7], speedKmh)) {
+            error = "VTG speed kmh parse failed";
+            return false;
+        }
+        fix.speedKmh = speedKmh;
+    } else {
+        fix.speedKmh = fix.speedKnots * 1.852;
+    }
+
+    return true;
+}
+
+bool NmeaParser::parseGsa(const std::string& line, GnssFix& fix, std::string& error) const
+{
+    const auto fields = splitFields(line);
+    if (fields.size() < 18) {
+        error = "GSA sentence has too few fields";
+        return false;
+    }
+
+    int fixType = 0;
+    if (!parseInt(fields[2], fixType)) {
+        error = "GSA fix type parse failed";
+        return false;
+    }
+    fix.fixType = fixType;
+
+    double pdop = 0.0;
+    double hdop = 0.0;
+    double vdop = 0.0;
+    if (!fields[15].empty() && !parseDouble(fields[15], pdop)) {
+        error = "GSA PDOP parse failed";
+        return false;
+    }
+    if (!fields[16].empty() && !parseDouble(fields[16], hdop)) {
+        error = "GSA HDOP parse failed";
+        return false;
+    }
+    if (!fields[17].empty() && !parseDouble(fields[17], vdop)) {
+        error = "GSA VDOP parse failed";
+        return false;
+    }
+    fix.pdop = pdop;
+    fix.hdop = hdop;
+    fix.vdop = vdop;
+    return true;
+}
+
+bool NmeaParser::parseGsv(const std::string& line, GnssFix& fix, std::string& error) const
+{
+    const auto fields = splitFields(line);
+    if (fields.size() < 4) {
+        error = "GSV sentence has too few fields";
+        return false;
+    }
+
+    int satellitesInView = 0;
+    if (!parseInt(fields[3], satellitesInView)) {
+        error = "GSV satellites in view parse failed";
+        return false;
+    }
+    fix.satellitesInView = satellitesInView;
     return true;
 }
 
@@ -256,8 +365,16 @@ std::string formatGnssFix(const GnssFix& fix)
            << ", alt_m=" << fix.altitudeMeters
            << std::setprecision(3)
            << ", speed_knots=" << fix.speedKnots
+           << std::setprecision(1)
+           << ", speed_kmh=" << fix.speedKmh
+           << ", course_deg=" << fix.courseDegrees
            << ", satellites=" << fix.satelliteCount
+           << ", satellites_in_view=" << fix.satellitesInView
            << ", fix_quality=" << fix.fixQuality
+           << ", fix_type=" << fix.fixType
+           << ", hdop=" << fix.hdop
+           << ", pdop=" << fix.pdop
+           << ", vdop=" << fix.vdop
            << ", utc=" << fix.utcTime;
     return stream.str();
 }

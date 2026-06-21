@@ -78,6 +78,11 @@ RuntimeStatus RuntimeManager::status() const
     return status_;
 }
 
+void RuntimeManager::setGnssStatus(const outdoor::gnss::GnssStatus& status)
+{
+    status_.gnssStatus = status;
+}
+
 void RuntimeManager::setMcuStatus(const outdoor::mcu::McuStatus& status)
 {
     status_.mcuStatus = status;

@@ -64,6 +64,8 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
 
             const auto& mcu = status.mcuStatus;
             const auto& imu = mcu.imuSample;
+            const auto& gnss = status.gnssStatus;
+            const auto& fix = gnss.fix;
             const auto& boardImu = status.boardImuStatus;
             stream << std::fixed << std::setprecision(3)
                    << "{\n"
@@ -72,6 +74,31 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
                    << "    \"service_count\": " << status.serviceCount << ",\n"
                    << "    \"started_service_count\": " << status.startedServiceCount << ",\n"
                    << "    \"last_error\": \"" << jsonEscape(status.lastError) << "\"\n"
+                   << "  },\n"
+                   << "  \"gnss\": {\n"
+                   << "    \"enabled\": " << (gnss.enabled ? "true" : "false") << ",\n"
+                   << "    \"seen\": " << (gnss.seen ? "true" : "false") << ",\n"
+                   << "    \"source\": \"" << jsonEscape(gnss.source) << "\",\n"
+                   << "    \"valid_sentence_count\": " << gnss.validSentenceCount << ",\n"
+                   << "    \"skipped_sentence_count\": " << gnss.skippedSentenceCount << ",\n"
+                   << "    \"last_sentence_type\": \"" << jsonEscape(gnss.lastSentenceType) << "\",\n"
+                   << "    \"fix_valid\": " << (fix.valid ? "true" : "false") << ",\n"
+                   << "    \"latitude_degrees\": " << std::setprecision(6) << fix.latitudeDegrees << ",\n"
+                   << "    \"longitude_degrees\": " << fix.longitudeDegrees << ",\n"
+                   << std::setprecision(3)
+                   << "    \"altitude_meters\": " << fix.altitudeMeters << ",\n"
+                   << "    \"speed_knots\": " << fix.speedKnots << ",\n"
+                   << "    \"speed_kmh\": " << fix.speedKmh << ",\n"
+                   << "    \"course_degrees\": " << fix.courseDegrees << ",\n"
+                   << "    \"satellite_count\": " << fix.satelliteCount << ",\n"
+                   << "    \"satellites_in_view\": " << fix.satellitesInView << ",\n"
+                   << "    \"fix_quality\": " << fix.fixQuality << ",\n"
+                   << "    \"fix_type\": " << fix.fixType << ",\n"
+                   << "    \"hdop\": " << fix.hdop << ",\n"
+                   << "    \"pdop\": " << fix.pdop << ",\n"
+                   << "    \"vdop\": " << fix.vdop << ",\n"
+                   << "    \"utc_time\": \"" << jsonEscape(fix.utcTime) << "\",\n"
+                   << "    \"last_error\": \"" << jsonEscape(gnss.lastError) << "\"\n"
                    << "  },\n"
                    << "  \"mcu\": {\n"
                    << "    \"heartbeat_seen\": " << (mcu.heartbeatSeen ? "true" : "false") << ",\n"

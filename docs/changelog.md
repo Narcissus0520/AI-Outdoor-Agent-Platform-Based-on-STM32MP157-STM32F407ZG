@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-06-21
+
+### Added
+
+- Added MP157 UART5 GNSS serial input software path for UBLOX-M10 NMEA, defaulting to `/dev/ttySTM2` at 9600 8N1.
+- Added `GnssStatus` and `gnss` output in `runtime_status.json`.
+- Extended NMEA parsing from RMC/GGA to RMC/GGA/VTG/GSA/GSV.
+- Added text dashboard prototype output at `runtime/dashboard.txt`.
+- Added `outdoor-agent` fbdev framebuffer dashboard APP prototype for the 7-inch RGB screen.
+- Added GNSS and dashboard configuration keys: `gnss_input_mode`, `gnss_serial_device`, `gnss_serial_baud`, `gnss_serial_capture_seconds`, `dashboard_enabled`, `dashboard_output_path`, `dashboard_output_mode`, `dashboard_framebuffer_device`, `dashboard_refresh_count`, and `dashboard_refresh_interval_ms`.
+- Added an `AI LOCAL AGENT: PLANNED` placeholder panel in the screen dashboard for future local AI deployment and interaction.
+- Added ADR-0010 for UART5 NMEA input and text dashboard prototype.
+- Added NMEA parser tests covering RMC/GGA/VTG/GSA/GSV and checksum rejection.
+
+### Verified
+
+- MP157 local build passed.
+- CTest passed with 5 tests, including the new NMEA parser test.
+- Runtime verification script passed and now checks `gnss` status plus dashboard output.
+- MP157 ARM cross-build passed.
+- MP157 board validation passed on COM3: `/dev/fb0` reported `1024,600` at 16 bpp; current ARM package `80025` bytes matched SHA256 `c27907d312d95e1278537e8d8bff20555d81a0d05be8f9c8848d70d6859079c1`; the runtime rendered `outdoor-agent` to `runtime/dashboard.txt` and `/dev/fb0` for 3 refresh cycles; dashboard markers confirmed `ai_agent_state: planned` and `source: icm20608_char`.
+
+### Deferred
+
+- UBLOX-M10 UART5 real board validation is pending.
+- `/dev/ttySTM2` and 9600 baud are current software defaults; both must be confirmed on MP157 with the actual module.
+- The dashboard is currently a lightweight fbdev APP prototype, not a full GUI toolkit, touch UI, or real AI Agent interaction layer.
+
 ## 2026-06-20
 
 ### Added

@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(OUTDOOR_CORE_SOURCES
     src/config/config_loader.cpp
+    src/gnss/gnss_status.cpp
     src/gnss/nmea_parser.cpp
     src/input/file_replay_input.cpp
     src/ipc/status_publisher.cpp
@@ -25,7 +26,9 @@ set(OUTDOOR_CORE_SOURCES
     src/runtime/runtime_status.cpp
     src/sensors/icm20608_char_reader.cpp
     src/sensors/icm20608_iio_reader.cpp
+    src/services/dashboard_service.cpp
     src/services/gnss_replay_service.cpp
+    src/services/gnss_serial_service.cpp
     src/services/icm20608_service.cpp
     src/services/mcu_mock_service.cpp
     src/services/mcu_serial_service.cpp
@@ -101,3 +104,14 @@ target_link_libraries(icm20608_char_reader_tests
 )
 
 add_test(NAME icm20608_char_reader_tests COMMAND icm20608_char_reader_tests)
+
+add_executable(nmea_parser_tests
+    tests/nmea_parser_tests.cpp
+)
+
+target_link_libraries(nmea_parser_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME nmea_parser_tests COMMAND nmea_parser_tests)

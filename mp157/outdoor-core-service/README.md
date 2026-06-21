@@ -2,15 +2,17 @@
 
 `outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力，并承载 Stage 1 Linux Runtime 侧 MCU 协议解析和 MP157 板载 ICM20608 读取服务。
 
-本模块不包含 STM32F407ZG 固件代码，不实现 UI、HTTP API 或 AI Agent。
+本模块不包含 STM32F407ZG 固件代码，不实现 HTTP API 或真实 AI Agent；当前提供 `outdoor-agent` 文本和 fbdev framebuffer 仪表盘 APP 原型。
 
 ## 当前能力
 
 - C++17 / CMake Linux Runtime 工程
 - 日志、配置和 Runtime Service 生命周期
-- NMEA 文件回放与最小 NMEA Parser
+- NMEA 文件回放与 RMC/GGA/VTG/GSA/GSV Parser
+- MP157 UART5 GNSS/NMEA serial 输入软件路径，默认 `/dev/ttySTM2`、9600 8N1
 - GNSS 基础定位状态输出
 - 文件型 Runtime 状态输出：`runtime/runtime_status.json`
+- `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出，以及可选 `/dev/fb0` framebuffer 输出
 - MCU mock frame 解析
 - `McuFrame` / `McuFrameParser` / `McuStatus`
 - CRC16/MODBUS 校验
@@ -66,6 +68,29 @@ Windows CMake 默认 Visual Studio 生成器:
 .\build\Debug\outdoor_core_runtime.exe --config config\runtime.conf
 ```
 
+默认 file GNSS 模式会解析 `data/nmea_sample.txt`，并输出：
+
+```text
+runtime/runtime_status.json
+runtime/dashboard.txt
+```
+
+7 英寸 RGB 屏 framebuffer 仪表盘运行方式：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf --board-imu --dashboard-output-mode both --dashboard-framebuffer-device /dev/fb0 --dashboard-refresh-count 3 --dashboard-refresh-interval-ms 500
+```
+
+当前屏幕 APP 名称为 `outdoor-agent`，显示 GNSS、F407 Sensor Hub、MP157 Board IMU 和 `AI LOCAL AGENT: PLANNED` 预留区；真实 AI Agent 本地部署和交互后续实现。
+
+UBLOX-M10 UART5 软件路径运行方式：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf --gnss-input-mode serial --gnss-serial-device /dev/ttySTM2 --gnss-serial-baud 9600 --gnss-serial-capture-seconds 5
+```
+
+该路径当前未做上板验证；`/dev/ttySTM2` 和 `9600` 是软件默认值，后续需要按 MP157 设备树和 UBLOX-M10 实际配置确认。
+
 MP157 板载 ICM20608 上板验证:
 
 ```bash
@@ -108,6 +133,9 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 验证脚本会检查：
 
 - NMEA 回放和 GNSS fix 输出
+- RMC/GGA/VTG/GSA/GSV 解析
+- `runtime_status.json` 中的 `gnss` 字段
+- `outdoor-agent` 文本仪表盘 `runtime/dashboard.txt`
 - NMEA checksum 错误拒绝
 - MCU heartbeat mock 帧
 - MCU mock sensor 帧
@@ -130,6 +158,10 @@ config/runtime.conf
 
 ```text
 nmea_input_path = data/nmea_sample.txt
+gnss_input_mode = file
+gnss_serial_device = /dev/ttySTM2
+gnss_serial_baud = 9600
+gnss_serial_capture_seconds = 5
 mcu_input_mode = mock_file
 mcu_mock_input_path = data/mcu_mock_frames.txt
 mcu_serial_device = /dev/ttySTM1
@@ -143,5 +175,11 @@ board_imu_device_path = /dev/icm20608
 board_imu_iio_path = /sys/bus/iio/devices/iio:device0
 board_imu_sample_count = 5
 board_imu_sample_interval_ms = 100
+dashboard_enabled = true
+dashboard_output_path = runtime/dashboard.txt
+dashboard_output_mode = text
+dashboard_framebuffer_device = /dev/fb0
+dashboard_refresh_count = 1
+dashboard_refresh_interval_ms = 1000
 log_level = info
 ```

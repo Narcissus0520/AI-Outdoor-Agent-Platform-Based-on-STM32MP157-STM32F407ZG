@@ -15,6 +15,7 @@ public:
     bool run();
     void stop();
     RuntimeStatus status() const;
+    void setGnssStatus(const outdoor::gnss::GnssStatus& status);
     void setMcuStatus(const outdoor::mcu::McuStatus& status);
     void setBoardImuStatus(const outdoor::sensors::BoardImuStatus& status);
 

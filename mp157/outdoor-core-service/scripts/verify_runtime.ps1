@@ -4,6 +4,7 @@ $serviceRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $output = Join-Path $serviceRoot "outdoor_core_runtime_verify.exe"
 $statusOutput = Join-Path $serviceRoot "runtime\runtime_status_verify.json"
 $edgeStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_edge_verify.json"
+$dashboardOutput = Join-Path $serviceRoot "runtime\dashboard_verify.txt"
 
 function Remove-TemporaryFile {
     param (
@@ -37,6 +38,7 @@ try {
         -I"..\..\common" `
         "src\main.cpp" `
         "src\config\config_loader.cpp" `
+        "src\gnss\gnss_status.cpp" `
         "src\gnss\nmea_parser.cpp" `
         "src\input\file_replay_input.cpp" `
         "src\ipc\status_publisher.cpp" `
@@ -51,13 +53,15 @@ try {
         "src\runtime\runtime_status.cpp" `
         "src\sensors\icm20608_char_reader.cpp" `
         "src\sensors\icm20608_iio_reader.cpp" `
+        "src\services\dashboard_service.cpp" `
         "src\services\gnss_replay_service.cpp" `
+        "src\services\gnss_serial_service.cpp" `
         "src\services\icm20608_service.cpp" `
         "src\services\mcu_mock_service.cpp" `
         "src\services\mcu_serial_service.cpp" `
         -o $output
 
-    $defaultOutput = & $output --config "config\runtime.conf" --status-output $statusOutput --log-level debug 2>&1
+    $defaultOutput = & $output --config "config\runtime.conf" --status-output $statusOutput --dashboard-output $dashboardOutput --log-level debug 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "default runtime execution failed"
     }
@@ -79,8 +83,24 @@ try {
         throw "runtime status output did not report stopped state"
     }
 
-    if ($statusText -notmatch '"service_count": 2') {
+    if ($statusText -notmatch '"service_count": 3') {
         throw "runtime status output did not report service count"
+    }
+
+    if ($statusText -notmatch '"gnss": \{') {
+        throw "runtime status output did not contain GNSS status object"
+    }
+
+    if ($statusText -notmatch '"source": "file"') {
+        throw "runtime status output did not report GNSS file source"
+    }
+
+    if ($statusText -notmatch '"fix_valid": true') {
+        throw "runtime status output did not report valid GNSS fix"
+    }
+
+    if ($statusText -notmatch '"satellites_in_view": 12') {
+        throw "runtime status output did not report GNSS satellites in view"
     }
 
     if ($statusText -notmatch '"board_imu": \{') {
@@ -127,7 +147,24 @@ try {
         throw "default runtime output did not report invalid MCU CRC"
     }
 
-    $edgeOutput = & $output --config "config\runtime.conf" --input "data\nmea_edge_cases.txt" --status-output $edgeStatusOutput --log-level debug 2>&1
+    if (!(Test-Path $dashboardOutput)) {
+        throw "dashboard output file was not created"
+    }
+
+    $dashboardText = Get-Content $dashboardOutput -Raw
+    if ($dashboardText -notmatch "outdoor-agent") {
+        throw "dashboard output did not contain title"
+    }
+
+    if ($dashboardText -notmatch "u-blox M10") {
+        throw "dashboard output did not contain GNSS section"
+    }
+
+    if ($dashboardText -notmatch "AI Local Agent") {
+        throw "dashboard output did not contain AI agent placeholder"
+    }
+
+    $edgeOutput = & $output --config "config\runtime.conf" --input "data\nmea_edge_cases.txt" --status-output $edgeStatusOutput --dashboard-output $dashboardOutput --log-level debug 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "edge-case runtime execution failed"
     }
@@ -145,7 +182,7 @@ try {
         throw "edge-case runtime output did not report invalid checksum"
     }
 
-    $warnOutput = & $output --config "config\runtime.conf" --status-output $statusOutput --log-level warn 2>&1
+    $warnOutput = & $output --config "config\runtime.conf" --status-output $statusOutput --dashboard-output $dashboardOutput --log-level warn 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "warn-level runtime execution failed"
     }
@@ -161,4 +198,5 @@ try {
     Remove-TemporaryFile $output
     Remove-TemporaryFile $statusOutput
     Remove-TemporaryFile $edgeStatusOutput
+    Remove-TemporaryFile $dashboardOutput
 }
