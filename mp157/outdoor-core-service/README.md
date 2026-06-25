@@ -9,7 +9,7 @@
 - C++17 / CMake Linux Runtime 工程
 - 日志、配置和 Runtime Service 生命周期
 - NMEA 文件回放与 RMC/GGA/VTG/GSA/GSV Parser
-- MP157 UART5 GNSS/NMEA serial 输入软件路径，默认 `/dev/ttySTM2`、9600 8N1
+- MP157 UART5 GNSS/NMEA serial 输入路径，已验证 `/dev/ttySTM2`、38400 8N1
 - GNSS 基础定位状态输出
 - 文件型 Runtime 状态输出：`runtime/runtime_status.json`
 - `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出，以及可选 `/dev/fb0` framebuffer 输出
@@ -18,6 +18,8 @@
 - CRC16/MODBUS 校验
 - Heartbeat、mock sensor 和 Mock IMU 帧解析
 - `runtime_status.json` 输出独立 `imu` 字段
+- `runtime_status.json` 输出独立 `magnetometer` 字段，解析 F407 MMC5603 三轴磁场帧
+- `runtime_status.json` 输出独立 `barometer` 字段，解析 F407 BMP390 气压和温度帧
 - F407 live serial 输入路径，默认按 MP157 USART3 `/dev/ttySTM1` 读取 115200 8N1 二进制 MCU 帧，已通过 F407 UART4 上板验证
 - 最小 MP157 -> F407 `command_ping -> command_ack` 软件路径，serial 模式可通过 `--mcu-command ping` 发送命令
 - MP157 板载 ICM20608 字符设备读取服务，输出独立 `board_imu` 字段
@@ -86,10 +88,10 @@ runtime/dashboard.txt
 UBLOX-M10 UART5 软件路径运行方式：
 
 ```bash
-./outdoor_core_runtime --config config/runtime.conf --gnss-input-mode serial --gnss-serial-device /dev/ttySTM2 --gnss-serial-baud 9600 --gnss-serial-capture-seconds 5
+./outdoor_core_runtime --config config/runtime.conf --gnss-input-mode serial --gnss-serial-device /dev/ttySTM2 --gnss-serial-baud 38400 --gnss-serial-capture-seconds 5
 ```
 
-该路径当前未做上板验证；`/dev/ttySTM2` 和 `9600` 是软件默认值，后续需要按 MP157 设备树和 UBLOX-M10 实际配置确认。
+该路径已完成上板通信验证：M10 持续输出 checksum 正确的 NMEA；当前环境无卫星信号，因此 `GGA fix=0`、`RMC=V`。
 
 MP157 板载 ICM20608 上板验证:
 
@@ -114,7 +116,9 @@ F407 GND              - MP157 GND
 ./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5
 ```
 
-2026-06-20 验证结果：`runtime/runtime_status.json` 中 `mcu.heartbeat_seen=true`、`mcu.imu_seen=true`、`mcu.status_flags=1`、`imu.seen=true`，IMU 字段来自 F407 真实 ICM42688 串口帧。
+2026-06-25 MMC5603 验证结果：F407 以约 20 Hz 输出 `sensor_magnetometer`，平均磁场强度约 `47.24 μT`。MP157 parser 会输出 `mcu.magnetometer_seen` 和独立 `magnetometer` 节点。当前 ICM42688 仍为 Mock fallback。
+
+BMP390 软件路径会解析 `sensor_barometer`，并输出 `mcu.barometer_seen` 以及独立 `barometer.pressure_pa`、`barometer.temperature_celsius`。该路径已通过本机构建和单元测试，真实 F407/BMP390 上板验证待完成。
 
 MP157 -> F407 最小下行 ping 命令：
 
@@ -160,7 +164,7 @@ config/runtime.conf
 nmea_input_path = data/nmea_sample.txt
 gnss_input_mode = file
 gnss_serial_device = /dev/ttySTM2
-gnss_serial_baud = 9600
+gnss_serial_baud = 38400
 gnss_serial_capture_seconds = 5
 mcu_input_mode = mock_file
 mcu_mock_input_path = data/mcu_mock_frames.txt

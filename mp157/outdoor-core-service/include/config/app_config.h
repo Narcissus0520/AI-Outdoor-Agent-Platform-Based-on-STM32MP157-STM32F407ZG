@@ -12,7 +12,7 @@ struct AppConfig {
     std::string gnssInputMode = "file";
     std::string nmeaInputPath = "data/nmea_sample.txt";
     std::string gnssSerialDevice = "/dev/ttySTM2";
-    std::uint32_t gnssSerialBaud = 9600;
+    std::uint32_t gnssSerialBaud = 38400;
     std::uint32_t gnssSerialCaptureSeconds = 5;
     std::string mcuInputMode = "mock_file";
     std::string mcuMockInputPath = "data/mcu_mock_frames.txt";

@@ -2,7 +2,9 @@
 #include "mcu/mcu_command.h"
 #include "mcu/mcu_frame_parser.h"
 #include "mcu/mcu_protocol.h"
+#include "protocol/barometer_payload.h"
 #include "protocol/imu_payload.h"
+#include "protocol/magnetometer_payload.h"
 
 #include <cassert>
 #include <cstdint>
@@ -63,6 +65,27 @@ std::vector<std::uint8_t> buildCommandAckPayload(std::uint8_t requestType,
     return payload;
 }
 
+std::vector<std::uint8_t> buildMagnetometerPayload()
+{
+    std::vector<std::uint8_t> payload;
+    payload.reserve(outdoor::mcu::kMagnetometerPayloadSize);
+    appendU32Le(payload, 4050U);
+    appendI32Le(payload, 32125);
+    appendI32Le(payload, -18750);
+    appendI32Le(payload, 44125);
+    return payload;
+}
+
+std::vector<std::uint8_t> buildBarometerPayload()
+{
+    std::vector<std::uint8_t> payload;
+    payload.reserve(outdoor::mcu::kBarometerPayloadSize);
+    appendU32Le(payload, 4100U);
+    appendU32Le(payload, 100825U);
+    appendI16Le(payload, 2468);
+    return payload;
+}
+
 std::vector<std::uint8_t> buildFrame(outdoor::mcu::McuFrameType type,
                                      std::uint16_t sequence,
                                      const std::vector<std::uint8_t>& payload)
@@ -117,6 +140,29 @@ int main()
     assert(status.lastSequence == 9);
     assert(status.lastFrameType == "sensor_imu");
     assert(status.imuSample.gyroYMdps == -2194);
+
+    const auto magnetometerFrame = buildFrame(
+        outdoor::mcu::McuFrameType::SensorMagnetometer,
+        10U,
+        buildMagnetometerPayload());
+    assert(frameParser.parseFrame(magnetometerFrame, frame, error));
+    assert(frameParser.applyFrame(frame, status, error));
+    assert(status.magnetometerSeen);
+    assert(status.lastFrameType == "sensor_magnetometer");
+    assert(status.magnetometerSample.magneticXNt == 32125);
+    assert(status.magnetometerSample.magneticYNt == -18750);
+    assert(status.magnetometerSample.magneticZNt == 44125);
+
+    const auto barometerFrame = buildFrame(
+        outdoor::mcu::McuFrameType::SensorBarometer,
+        11U,
+        buildBarometerPayload());
+    assert(frameParser.parseFrame(barometerFrame, frame, error));
+    assert(frameParser.applyFrame(frame, status, error));
+    assert(status.barometerSeen);
+    assert(status.lastFrameType == "sensor_barometer");
+    assert(status.barometerSample.pressurePa == 100825U);
+    assert(status.barometerSample.temperatureCentiC == 2468);
 
     const auto pingFrame = outdoor::mcu::buildPingCommandFrame(11U, outdoor::mcu::kDefaultPingNonce);
     assert(frameParser.parseFrame(pingFrame, frame, error));

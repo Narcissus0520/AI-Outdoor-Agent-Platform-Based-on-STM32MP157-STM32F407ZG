@@ -18,6 +18,8 @@ private:
     bool applyHeartbeat(const McuFrame& frame, McuStatus& status, std::string& error) const;
     bool applyMockSensor(const McuFrame& frame, McuStatus& status, std::string& error) const;
     bool applySensorImu(const McuFrame& frame, McuStatus& status, std::string& error) const;
+    bool applySensorMagnetometer(const McuFrame& frame, McuStatus& status, std::string& error) const;
+    bool applySensorBarometer(const McuFrame& frame, McuStatus& status, std::string& error) const;
     bool applyCommandAck(const McuFrame& frame, McuStatus& status, std::string& error) const;
 };
 

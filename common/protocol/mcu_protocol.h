@@ -15,6 +15,8 @@ constexpr std::size_t kMaxPayloadSize = 64;
 constexpr std::uint8_t MSG_TYPE_HEARTBEAT = 0x01;
 constexpr std::uint8_t MSG_TYPE_MOCK_SENSOR = 0x10;
 constexpr std::uint8_t MSG_TYPE_SENSOR_IMU = 0x11;
+constexpr std::uint8_t MSG_TYPE_SENSOR_MAGNETOMETER = 0x12;
+constexpr std::uint8_t MSG_TYPE_SENSOR_BAROMETER = 0x13;
 constexpr std::uint8_t MSG_TYPE_COMMAND_PING = 0x80;
 constexpr std::uint8_t MSG_TYPE_COMMAND_ACK = 0x81;
 

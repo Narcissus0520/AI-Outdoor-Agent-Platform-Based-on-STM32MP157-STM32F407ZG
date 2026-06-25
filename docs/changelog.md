@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-06-26
+
+### Added
+
+- 集成 Bosch BMP3 Sensor API v2.0.5 和 F407 `bmp390_provider_c`。
+- 新增 `sensor_barometer` (`0x13`) 协议帧、heartbeat BMP390 状态位和 MP157 barometer 状态输出。
+- BMP390 自动探测 I2C 地址 `0x77/0x76`，配置 25 Hz normal mode，并以 10 Hz 发布补偿气压和温度。
+- 新增 ADR-0011，记录采用 Bosch 官方补偿驱动的原因和边界。
+
+### Verified
+
+- F407 GNU ARM 固件构建通过。
+- MP157 本机构建、5 项 CTest 和 ARM 交叉编译通过。
+- `frame_decoder` 构建和协议解码路径通过。
+
+### Deferred
+
+- 按当前任务要求未烧录固件，BMP390 真实 I2C、补偿值和 10 Hz 帧上板验证待完成。
+
+## 2026-06-25
+
+### Added
+
+- Added F407 MMC5603 I2C2 provider at address `0x30`.
+- Added `sensor_magnetometer` frame type, fixed-point nanotesla payload, MP157 parsing, status output, and dashboard magnetic-strength display.
+
+### Verified
+
+- F407 firmware build and byte-for-byte UART Bootloader flashing passed.
+- Five-second board capture reported 100 MMC5603 frames at `19.8 Hz`.
+- Average field was approximately `(-35.60, -25.18, 18.16) uT`, magnitude `47.24 uT`.
+- MMC5603 ready was set while ICM42688 remained in fallback/error, yielding heartbeat `status_flags=0x000E`.
+- UBLOX-M10 UART5 communication was confirmed at 38400 baud with valid NMEA checksums; satellite fix remained invalid in the current environment.
+
 ## 2026-06-22
 
 ### Changed

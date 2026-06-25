@@ -12,6 +12,8 @@ std::string formatMcuStatus(const McuStatus& status)
            << "MCU status: heartbeat=" << (status.heartbeatSeen ? "true" : "false")
            << ", mock_sensor=" << (status.mockSensorSeen ? "true" : "false")
            << ", imu=" << (status.imuSeen ? "true" : "false")
+           << ", magnetometer=" << (status.magnetometerSeen ? "true" : "false")
+           << ", barometer=" << (status.barometerSeen ? "true" : "false")
            << ", command_ack=" << (status.commandAckSeen ? "true" : "false")
            << ", seq=" << status.lastSequence
            << ", uptime_ms=" << status.uptimeMs
@@ -25,6 +27,14 @@ std::string formatMcuStatus(const McuStatus& status)
            << outdoor::protocol::accelMgToG(status.imuSample.accelXMg) << ", "
            << outdoor::protocol::accelMgToG(status.imuSample.accelYMg) << ", "
            << outdoor::protocol::accelMgToG(status.imuSample.accelZMg) << ")"
+           << ", magnetic_ut=("
+           << outdoor::protocol::nanoTeslaToMicroTesla(status.magnetometerSample.magneticXNt) << ", "
+           << outdoor::protocol::nanoTeslaToMicroTesla(status.magnetometerSample.magneticYNt) << ", "
+           << outdoor::protocol::nanoTeslaToMicroTesla(status.magnetometerSample.magneticZNt) << ")"
+           << ", pressure_pa=" << status.barometerSample.pressurePa
+           << ", barometer_temp_c="
+           << outdoor::protocol::centiCelsiusToCelsiusBarometer(
+                  status.barometerSample.temperatureCentiC)
            << ", last_frame=" << status.lastFrameType;
     return stream.str();
 }

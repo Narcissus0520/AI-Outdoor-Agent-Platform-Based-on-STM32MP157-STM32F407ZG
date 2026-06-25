@@ -1,5 +1,60 @@
 ﻿# Dev Log
 
+## 2026-06-26 - F407 BMP390 Software Integration
+
+### 本次完成
+
+- 参考本地 BMP390 模块资料和 STM32 示例工程，将 Bosch BMP3 Sensor API v2.0.5 集成到 F407 固件。
+- 新增 BMP390 I2C provider，复用 PB10/PB11 I2C2，自动探测 `0x77` 和 `0x76`。
+- 配置温度/气压 2x 过采样、IIR 系数 3、25 Hz ODR，并以 10 Hz 发布 `sensor_barometer`。
+- 扩展 MP157 Runtime、状态 JSON、文本仪表盘和 frame decoder 的气压计解析。
+- 新增 ADR-0011，记录第三方驱动选型。
+
+### 修改文件
+
+- `common/protocol/barometer_payload.h`
+- `f407/sensor-hub/firmware/sensors/bmp390_provider_c.*`
+- `f407/sensor-hub/firmware/third_party/bosch_bmp3/`
+- F407 frame builder、Sensor Hub app 和固件 CMake
+- MP157 MCU parser/status、状态发布、仪表盘和测试
+- 协议、设计、阶段计划和模块 README
+
+### 验证结果
+
+- F407 ARM 构建通过：Flash 16740 B，RAM 2024 B。
+- MP157 本机构建通过，CTest 5/5 通过，ARM 交叉构建通过。
+- `tools/frame_decoder` 构建通过，`git diff --check` 通过。
+- 按任务要求未烧录固件，也未进行 BMP390 上板验证。
+
+### 后续 TODO
+
+- 按接线方案上板，确认实际地址、heartbeat ready/error 位和 `barometer_seen=true`。
+- 检查室内环境下气压和温度补偿值，并验证 10 Hz 长时间稳定性。
+- 后续增加可配置海平面参考气压，由 MP157 计算相对海拔。
+
+## 2026-06-25 - F407 MMC5603 Integration and Board Validation
+
+### 本次完成
+
+- 在 F407 I2C2 总线接入 MMC5603，默认地址 `0x30`。
+- 实现软件复位、产品 ID 检查、SET/RESET 线圈脉冲、单次测量和 20-bit XYZ 解码。
+- 新增 `sensor_magnetometer` 协议帧，MP157 parser、状态 JSON 和仪表盘 MAG 指标同步适配。
+
+### 验证结果
+
+- MP157 Runtime 本机构建通过，CTest 5/5 通过。
+- F407 PC mock 构建和测试通过。
+- F407 ARM 构建通过，Flash 11892 B、RAM 1936 B。
+- COM6 UART Bootloader 烧录和逐字节回读校验通过。
+- MP157 `/dev/ttySTM1` 五秒抓取 100 个磁力计帧，频率 `19.8 Hz`。
+- 平均磁场约 `(-35.60, -25.18, 18.16) μT`，合成强度约 `47.24 μT`。
+- heartbeat `0x000E` 表示 MMC5603 ready；ICM42688 当前仍为 Mock fallback/error。
+
+### 后续 TODO
+
+- 完成 MMC5603 硬铁、软铁和倾斜补偿后再输出真实罗盘航向。
+- 单独排查当前 ICM42688 I2C 初始化失败。
+
 ## 2026-06-22 - Reference-style outdoor-agent Dashboard Layout
 
 ### 本次完成

@@ -69,8 +69,11 @@ add_executable(sensor_hub
     protocol/crc16_modbus_c.c
     protocol/mcu_command_decoder_c.c
     protocol/mcu_frame_builder_c.c
+    sensors/bmp390_provider_c.c
     sensors/icm42688_provider_c.c
+    sensors/mmc5603_provider_c.c
     sensors/mock_imu_provider_c.c
+    third_party/bosch_bmp3/bmp3.c
     ${CUBE_CORE_SOURCES}
     ${HAL_SOURCES}
 )
@@ -90,6 +93,7 @@ set_target_properties(sensor_hub PROPERTIES
 )
 
 target_compile_definitions(sensor_hub PRIVATE
+    BMP3_64BIT_COMPENSATION
     USE_HAL_DRIVER
     STM32F407xx
 )
@@ -97,6 +101,7 @@ target_compile_definitions(sensor_hub PRIVATE
 target_include_directories(sensor_hub PRIVATE
     "${CUBE_ROOT}/Core/Inc"
     "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/bosch_bmp3"
     "${HAL_ROOT}/Inc"
     "${HAL_ROOT}/Inc/Legacy"
     "${CMSIS_ROOT}/Device/ST/STM32F4xx/Include"

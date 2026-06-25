@@ -23,11 +23,15 @@ mp157/outdoor-core-service/
 
 当前 MP157 Runtime 已包含 `include/sensors` 和 `src/sensors`，用于主控侧板载传感器读取。当前实现为 ICM20608 字符设备 reader 和 IIO sysfs reader；运行时服务位于 `include/services/icm20608_service.h` 和 `src/services/icm20608_service.cpp`，默认关闭，上板时通过配置或 `--board-imu` 启用。真实 MP157 板上已通过 `/dev/icm20608` 字符设备完成 Runtime 读取验证。
 
-当前 MP157 Runtime 包含 `GnssReplayService`、`GnssSerialService`、`NmeaParser` 和 `GnssStatus`，默认从 NMEA 样例文件回放，后续可通过 `gnss_input_mode = serial` 从 MP157 UART5 `/dev/ttySTM2` 读取 UBLOX-M10 NMEA。UART5 路径当前只完成软件实现，尚未上板验证。
+当前 MP157 Runtime 包含 `GnssReplayService`、`GnssSerialService`、`NmeaParser` 和 `GnssStatus`，默认从 NMEA 样例文件回放，也可通过 `gnss_input_mode = serial` 从 MP157 UART5 `/dev/ttySTM2`、38400 8N1 读取 UBLOX-M10 NMEA。该通信路径已上板验证，当前环境无有效卫星 fix。
 
 当前 MP157 Runtime 也包含 `DashboardService`，默认生成 `runtime/dashboard.txt` 文本仪表盘，并可通过 `dashboard_output_mode = framebuffer | both` 写入 `/dev/fb0` 显示 `outdoor-agent` 7 英寸 RGB 屏仪表盘；这仍是轻量 fbdev 原型，不包含完整 GUI、触摸交互或窗口系统。
 
 当前 MP157 Runtime 也包含 `McuSerialService`、`McuFrameStreamDecoder` 和 `McuCommand`，用于从 `/dev/ttySTM1` 读取 F407 UART4 输出的 MCU 二进制帧，并通过同一串口发送最小 `command_ping` 下行命令；上行读取路径已通过 `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX` 上板验证，下行物理链路已通过 MP157 shell raw ping/ack 验证，新版 ARM Runtime 板端复测仍待完成。
+
+F407 当前还通过 `sensor_magnetometer` 帧上报 MMC5603 三轴磁场，MP157 Runtime 将其解析为独立 `magnetometer` 状态。
+
+F407 BMP390 软件路径通过 `sensor_barometer` 帧上报补偿后的气压和温度，MP157 Runtime 将其解析为独立 `barometer` 状态；当前尚未完成上板验证。
 
 ## `f407/`
 
@@ -42,7 +46,7 @@ f407/sensor-hub/
 当前提供两类代码：
 
 - PC mock C++ 工程：可在本机编译验证 Mock IMU Provider 和 MCU 协议帧打包。
-- `firmware/`：真实 F407 固件工作区，包含项目自有的 app、BSP、协议、ICM42688 数据源、Mock IMU fallback 和最小 command decoder。
+- `firmware/`：真实 F407 固件工作区，包含项目自有的 app、BSP、协议、ICM42688/MMC5603/BMP390 数据源、Mock IMU fallback 和最小 command decoder。
 - `firmware/stm32cube/`：STM32CubeMX 6.17.0 基于 STM32Cube FW_F4 V1.28.3 生成的 `STM32F407ZGTx` HAL 基础工程。
 
 ```text
@@ -60,6 +64,7 @@ f407/sensor-hub/
     ├── protocol/               # C 版协议实现
     ├── sensors/                # 固件传感器数据源
     ├── startup/                # Cortex-M4 启动与中断向量表
+    ├── third_party/            # Bosch BMP3 Sensor API 等受控第三方源码
     └── stm32cube/              # CubeMX 生成代码、HAL/CMSIS 和 .ioc
 ```
 
@@ -75,7 +80,7 @@ f407/sensor-hub/
 common/protocol/
 ```
 
-当前放置 MP157 与 F407 共享的协议常量、CRC16/MODBUS 和 `ImuSample` / IMU payload 定义。
+当前放置 MP157 与 F407 共享的协议常量、CRC16/MODBUS，以及 IMU、磁力计和气压计 payload 定义。
 
 ## `tools/`
 
@@ -87,7 +92,7 @@ common/protocol/
 tools/frame_decoder/
 ```
 
-`frame_decoder` 用于解析十六进制 MCU 协议帧，并在 `sensor_imu` 帧中展开 IMU payload 字段。
+`frame_decoder` 用于解析十六进制 MCU 协议帧，并展开 IMU、磁力计和气压计 payload 字段。
 
 ## `scripts/`
 

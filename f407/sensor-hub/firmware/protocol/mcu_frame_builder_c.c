@@ -117,6 +117,63 @@ int mcu_build_imu_frame(uint16_t sequence,
     return 0;
 }
 
+int mcu_build_magnetometer_frame(uint16_t sequence,
+                                 const magnetometer_sample_c_t* sample,
+                                 uint8_t* out_frame,
+                                 size_t out_capacity,
+                                 size_t* out_length)
+{
+    uint8_t* payload;
+
+    if (sample == 0) {
+        return -1;
+    }
+
+    if (begin_frame(MCU_MSG_TYPE_SENSOR_MAGNETOMETER,
+                    sequence,
+                    MCU_MAGNETOMETER_PAYLOAD_SIZE,
+                    out_frame,
+                    out_capacity) != 0) {
+        return -1;
+    }
+
+    payload = &out_frame[MCU_FRAME_HEADER_SIZE];
+    write_u32_le(&payload[0], sample->uptime_ms);
+    write_i32_le(&payload[4], sample->magnetic_x_nt);
+    write_i32_le(&payload[8], sample->magnetic_y_nt);
+    write_i32_le(&payload[12], sample->magnetic_z_nt);
+    finish_frame(out_frame, MCU_MAGNETOMETER_PAYLOAD_SIZE, out_length);
+    return 0;
+}
+
+int mcu_build_barometer_frame(uint16_t sequence,
+                              const barometer_sample_c_t* sample,
+                              uint8_t* out_frame,
+                              size_t out_capacity,
+                              size_t* out_length)
+{
+    uint8_t* payload;
+
+    if (sample == 0) {
+        return -1;
+    }
+
+    if (begin_frame(MCU_MSG_TYPE_SENSOR_BAROMETER,
+                    sequence,
+                    MCU_BAROMETER_PAYLOAD_SIZE,
+                    out_frame,
+                    out_capacity) != 0) {
+        return -1;
+    }
+
+    payload = &out_frame[MCU_FRAME_HEADER_SIZE];
+    write_u32_le(&payload[0], sample->uptime_ms);
+    write_u32_le(&payload[4], sample->pressure_pa);
+    write_i16_le(&payload[8], sample->temperature_centi_c);
+    finish_frame(out_frame, MCU_BAROMETER_PAYLOAD_SIZE, out_length);
+    return 0;
+}
+
 int mcu_build_command_ack_frame(uint16_t sequence,
                                 uint8_t request_type,
                                 uint8_t status,

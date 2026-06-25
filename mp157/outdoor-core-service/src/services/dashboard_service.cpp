@@ -614,7 +614,17 @@ bool DashboardService::writeFramebufferDashboard()
     canvas.drawText(compassX + 98, compassY + 254, "NORTH EAST", muted, 1);
     canvas.fillRect(compassX + 10, compassY + topCardH - 52, compassW - 20, 42, {8, 29, 55});
     canvas.drawRect(compassX + 10, compassY + topCardH - 52, compassW - 20, 42, borderDim);
-    drawSmallMetric(compassX + 22, compassY + topCardH - 42, "MAG", "48.2UT", cyanSoft);
+    const auto& magnetic = mcuStatus_.magnetometerSample;
+    const double magneticX = outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticXNt);
+    const double magneticY = outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticYNt);
+    const double magneticZ = outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticZNt);
+    const double magneticStrength = std::sqrt(
+        magneticX * magneticX + magneticY * magneticY + magneticZ * magneticZ);
+    drawSmallMetric(compassX + 22,
+                    compassY + topCardH - 42,
+                    "MAG",
+                    mcuStatus_.magnetometerSeen ? fixedValue(magneticStrength, 1) + "UT" : "--",
+                    cyanSoft);
     drawSmallMetric(compassX + 95, compassY + topCardH - 42, "AZIMUTH", fixedValue(course, 1), white);
     drawSmallMetric(compassX + 172, compassY + topCardH - 42, "PITCH", fixedValue(boardImuStatus_.accelXG * 2.0, 1), white);
 
@@ -785,6 +795,8 @@ std::string DashboardService::render() const
     stream << "\n[F407 Sensor Hub]\n"
            << "heartbeat_seen: " << (mcuStatus_.heartbeatSeen ? "true" : "false") << "\n"
            << "imu_seen: " << (mcuStatus_.imuSeen ? "true" : "false") << "\n"
+           << "magnetometer_seen: " << (mcuStatus_.magnetometerSeen ? "true" : "false") << "\n"
+           << "barometer_seen: " << (mcuStatus_.barometerSeen ? "true" : "false") << "\n"
            << "status_flags: " << mcuStatus_.statusFlags << "\n"
            << "last_frame_type: " << mcuStatus_.lastFrameType << "\n"
            << "accel_g: "
@@ -795,6 +807,19 @@ std::string DashboardService::render() const
            << outdoor::protocol::gyroMdpsToDps(imu.gyroXMdps) << ", "
            << outdoor::protocol::gyroMdpsToDps(imu.gyroYMdps) << ", "
            << outdoor::protocol::gyroMdpsToDps(imu.gyroZMdps) << "\n";
+    if (mcuStatus_.magnetometerSeen) {
+        const auto& magnetic = mcuStatus_.magnetometerSample;
+        stream << "magnetic_ut: "
+               << outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticXNt) << ", "
+               << outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticYNt) << ", "
+               << outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticZNt) << "\n";
+    }
+    if (mcuStatus_.barometerSeen) {
+        stream << "pressure_pa: " << mcuStatus_.barometerSample.pressurePa << "\n"
+               << "barometer_temperature_celsius: "
+               << outdoor::protocol::centiCelsiusToCelsiusBarometer(
+                      mcuStatus_.barometerSample.temperatureCentiC) << "\n";
+    }
 
     stream << "\n[MP157 Board IMU]\n"
            << "enabled: " << (boardImuStatus_.enabled ? "true" : "false") << "\n"

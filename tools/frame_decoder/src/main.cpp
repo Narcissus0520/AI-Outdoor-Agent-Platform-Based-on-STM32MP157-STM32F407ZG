@@ -1,4 +1,6 @@
+#include "protocol/barometer_payload.h"
 #include "protocol/imu_payload.h"
+#include "protocol/magnetometer_payload.h"
 #include "protocol/mcu_protocol.h"
 
 #include <cctype>
@@ -96,6 +98,10 @@ const char* typeName(std::uint8_t type)
         return "mock_sensor";
     case outdoor::protocol::MSG_TYPE_SENSOR_IMU:
         return "sensor_imu";
+    case outdoor::protocol::MSG_TYPE_SENSOR_MAGNETOMETER:
+        return "sensor_magnetometer";
+    case outdoor::protocol::MSG_TYPE_SENSOR_BAROMETER:
+        return "sensor_barometer";
     default:
         return "unknown";
     }
@@ -131,6 +137,39 @@ void printImuPayload(const std::vector<std::uint8_t>& payload)
               << outdoor::protocol::gyroMdpsToDps(sample.gyroZMdps) << ")\n"
               << "imu.temperature_celsius="
               << outdoor::protocol::centiCelsiusToCelsius(sample.temperatureCentiC) << "\n";
+}
+
+void printMagnetometerPayload(const std::vector<std::uint8_t>& payload)
+{
+    if (payload.size() != outdoor::protocol::kMagnetometerPayloadSize) {
+        std::cout << "magnetometer_payload_error=invalid_size\n";
+        return;
+    }
+
+    const auto x = readI32Le(payload, 4);
+    const auto y = readI32Le(payload, 8);
+    const auto z = readI32Le(payload, 12);
+    std::cout << std::fixed << std::setprecision(3)
+              << "magnetometer.uptime_ms=" << readU32Le(payload, 0) << "\n"
+              << "magnetometer.microtesla=("
+              << outdoor::protocol::nanoTeslaToMicroTesla(x) << ", "
+              << outdoor::protocol::nanoTeslaToMicroTesla(y) << ", "
+              << outdoor::protocol::nanoTeslaToMicroTesla(z) << ")\n";
+}
+
+void printBarometerPayload(const std::vector<std::uint8_t>& payload)
+{
+    if (payload.size() != outdoor::protocol::kBarometerPayloadSize) {
+        std::cout << "barometer_payload_error=invalid_size\n";
+        return;
+    }
+
+    std::cout << std::fixed << std::setprecision(2)
+              << "barometer.uptime_ms=" << readU32Le(payload, 0) << "\n"
+              << "barometer.pressure_pa=" << readU32Le(payload, 4) << "\n"
+              << "barometer.temperature_celsius="
+              << outdoor::protocol::centiCelsiusToCelsiusBarometer(
+                     readI16Le(payload, 8)) << "\n";
 }
 
 } // namespace
@@ -194,6 +233,10 @@ int main(int argc, char* argv[])
 
     if (type == outdoor::protocol::MSG_TYPE_SENSOR_IMU) {
         printImuPayload(payload);
+    } else if (type == outdoor::protocol::MSG_TYPE_SENSOR_MAGNETOMETER) {
+        printMagnetometerPayload(payload);
+    } else if (type == outdoor::protocol::MSG_TYPE_SENSOR_BAROMETER) {
+        printBarometerPayload(payload);
     }
 
     return expectedCrc == actualCrc ? 0 : 1;

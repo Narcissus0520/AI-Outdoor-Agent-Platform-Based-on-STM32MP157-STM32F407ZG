@@ -1,6 +1,6 @@
 # STM32F407ZG Sensor Hub Protocol
 
-本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 UART4 PC10、115200 8N1 发送 heartbeat 和 IMU 二进制帧到 MP157 USART3 PD9，MP157 Linux 侧设备为 `/dev/ttySTM1`；UART4 PC11 / MP157 PD8 已接线并用于最小下行命令 `command_ping -> command_ack`。F407 侧已接入 ICM42688 I2C 读取路径，初始化或读取失败时回退到 Mock IMU。当前 IMU 帧目标频率为 100 Hz，MP157 Runtime 的 serial 输入源和板间联调已完成最小验证；下行物理链路已通过 MP157 shell raw ping/ack 验证，新版 ARM Runtime `--mcu-command ping` 板端复测仍待完成。
+本文档记录 Stage 1 当前使用的 MCU 协议原型。当前 F407 固件通过 UART4 PC10、115200 8N1 发送 heartbeat、IMU、MMC5603 磁力计和 BMP390 气压计二进制帧到 MP157 USART3 PD9，MP157 Linux 侧设备为 `/dev/ttySTM1`。
 
 串口上传输的是连续二进制帧，不附加换行符，也不转换为十六进制文本。
 
@@ -34,6 +34,8 @@ version, frame_type, sequence, payload_length, payload
 0x01 heartbeat
 0x10 mock_sensor
 0x11 sensor_imu
+0x12 sensor_magnetometer
+0x13 sensor_barometer
 0x80 command_ping
 0x81 command_ack
 ```
@@ -52,6 +54,10 @@ offset  size  field
 bit 0 / 0x0001: ICM42688 ready，IMU 帧来自真实 ICM42688
 bit 1 / 0x0002: IMU fallback active，IMU 帧来自 Mock IMU
 bit 2 / 0x0004: IMU init/read error，ICM42688 初始化或读取失败
+bit 3 / 0x0008: MMC5603 ready，磁力计帧来自真实 MMC5603
+bit 4 / 0x0010: MMC5603 init/read error
+bit 5 / 0x0020: BMP390 ready，气压计帧来自真实 BMP390
+bit 6 / 0x0040: BMP390 init/read error
 ```
 
 PC 侧历史 `scripts/verify_f407_uart.ps1` 会打印最后一帧 heartbeat 的 `last_heartbeat_status_flags`；当前板间验证以 MP157 Runtime `runtime_status.json` 中的 `mcu.status_flags` 为准。`0x0001` 表示当前 IMU 数据来自真实 ICM42688。
@@ -71,8 +77,40 @@ offset  size  field
 换算关系：
 
 - `temperature_centi_c / 100.0`
+
+## Magnetometer Payload
+
+磁力计 payload 由 `common/protocol/magnetometer_payload.h` 定义，F407 当前使用 20 Hz 单次测量上报。
+
+```text
+offset  size  field
+0       4     uptime_ms
+4       4     magnetic_x_nt
+8       4     magnetic_y_nt
+12      4     magnetic_z_nt
+```
+
+换算关系：`magnetic_*_nt / 1000.0 = μT`。
 - `humidity_permille / 10.0`
 - `accel_*_mg / 1000.0`
+
+## Barometer Payload
+
+气压计 payload 由 `common/protocol/barometer_payload.h` 定义。F407 当前以 10 Hz 发布 BMP390 补偿后的气压和温度。
+
+```text
+offset  size  field
+0       4     uptime_ms
+4       4     pressure_pa
+8       2     temperature_centi_c
+```
+
+换算关系：
+
+- `pressure_pa` 为 Pa
+- `temperature_centi_c / 100.0` 为 °C
+
+协议暂不直接传输海拔。海拔换算依赖当地海平面参考气压，后续应由 MP157 配置和计算。
 
 ## IMU Payload
 

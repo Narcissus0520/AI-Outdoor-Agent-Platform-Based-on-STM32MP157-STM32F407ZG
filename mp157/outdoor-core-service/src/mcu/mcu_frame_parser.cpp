@@ -27,6 +27,11 @@ std::int16_t readI16Le(const std::vector<std::uint8_t>& bytes, std::size_t offse
     return static_cast<std::int16_t>(readU16Le(bytes, offset));
 }
 
+std::int32_t readI32Le(const std::vector<std::uint8_t>& bytes, std::size_t offset)
+{
+    return static_cast<std::int32_t>(readU32Le(bytes, offset));
+}
+
 } // namespace
 
 bool McuFrameParser::parseFrame(const std::vector<std::uint8_t>& bytes, McuFrame& frame, std::string& error) const
@@ -86,6 +91,10 @@ bool McuFrameParser::applyFrame(const McuFrame& frame, McuStatus& status, std::s
         return applyMockSensor(frame, status, error);
     case McuFrameType::SensorImu:
         return applySensorImu(frame, status, error);
+    case McuFrameType::SensorMagnetometer:
+        return applySensorMagnetometer(frame, status, error);
+    case McuFrameType::SensorBarometer:
+        return applySensorBarometer(frame, status, error);
     case McuFrameType::CommandAck:
         return applyCommandAck(frame, status, error);
     case McuFrameType::CommandPing:
@@ -146,6 +155,47 @@ bool McuFrameParser::applySensorImu(const McuFrame& frame, McuStatus& status, st
     status.lastSequence = frame.sequence;
     status.uptimeMs = sample.uptimeMs;
     status.imuSample = sample;
+    status.lastFrameType = mcuFrameTypeToString(frame.type);
+    status.lastError.clear();
+    return true;
+}
+
+bool McuFrameParser::applySensorMagnetometer(const McuFrame& frame,
+                                             McuStatus& status,
+                                             std::string& error) const
+{
+    if (frame.payload.size() != kMagnetometerPayloadSize) {
+        error = "magnetometer payload size is invalid";
+        return false;
+    }
+
+    status.magnetometerSeen = true;
+    status.lastSequence = frame.sequence;
+    status.uptimeMs = readU32Le(frame.payload, 0);
+    status.magnetometerSample.uptimeMs = status.uptimeMs;
+    status.magnetometerSample.magneticXNt = readI32Le(frame.payload, 4);
+    status.magnetometerSample.magneticYNt = readI32Le(frame.payload, 8);
+    status.magnetometerSample.magneticZNt = readI32Le(frame.payload, 12);
+    status.lastFrameType = mcuFrameTypeToString(frame.type);
+    status.lastError.clear();
+    return true;
+}
+
+bool McuFrameParser::applySensorBarometer(const McuFrame& frame,
+                                          McuStatus& status,
+                                          std::string& error) const
+{
+    if (frame.payload.size() != kBarometerPayloadSize) {
+        error = "barometer payload size is invalid";
+        return false;
+    }
+
+    status.barometerSeen = true;
+    status.lastSequence = frame.sequence;
+    status.uptimeMs = readU32Le(frame.payload, 0);
+    status.barometerSample.uptimeMs = status.uptimeMs;
+    status.barometerSample.pressurePa = readU32Le(frame.payload, 4);
+    status.barometerSample.temperatureCentiC = readI16Le(frame.payload, 8);
     status.lastFrameType = mcuFrameTypeToString(frame.type);
     status.lastError.clear();
     return true;

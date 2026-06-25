@@ -1,6 +1,8 @@
 #pragma once
 
 #include "sensors/imu_sample_c.h"
+#include "sensors/barometer_sample_c.h"
+#include "sensors/magnetometer_sample_c.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -15,12 +17,16 @@ enum {
     MCU_PROTOCOL_VERSION = 0x01U,
     MCU_MSG_TYPE_HEARTBEAT = 0x01U,
     MCU_MSG_TYPE_SENSOR_IMU = 0x11U,
+    MCU_MSG_TYPE_SENSOR_MAGNETOMETER = 0x12U,
+    MCU_MSG_TYPE_SENSOR_BAROMETER = 0x13U,
     MCU_MSG_TYPE_COMMAND_PING = 0x80U,
     MCU_MSG_TYPE_COMMAND_ACK = 0x81U,
     MCU_FRAME_HEADER_SIZE = 8U,
     MCU_FRAME_CRC_SIZE = 2U,
     MCU_HEARTBEAT_PAYLOAD_SIZE = 6U,
     MCU_IMU_PAYLOAD_SIZE = 24U,
+    MCU_MAGNETOMETER_PAYLOAD_SIZE = 16U,
+    MCU_BAROMETER_PAYLOAD_SIZE = 10U,
     MCU_COMMAND_PING_PAYLOAD_SIZE = 4U,
     MCU_COMMAND_ACK_PAYLOAD_SIZE = 8U,
     MCU_FRAME_MAX_PAYLOAD_SIZE = 64U,
@@ -39,6 +45,18 @@ int mcu_build_imu_frame(uint16_t sequence,
                         uint8_t* out_frame,
                         size_t out_capacity,
                         size_t* out_length);
+
+int mcu_build_magnetometer_frame(uint16_t sequence,
+                                 const magnetometer_sample_c_t* sample,
+                                 uint8_t* out_frame,
+                                 size_t out_capacity,
+                                 size_t* out_length);
+
+int mcu_build_barometer_frame(uint16_t sequence,
+                              const barometer_sample_c_t* sample,
+                              uint8_t* out_frame,
+                              size_t out_capacity,
+                              size_t* out_length);
 
 int mcu_build_command_ack_frame(uint16_t sequence,
                                 uint8_t request_type,
