@@ -10,16 +10,23 @@ enum {
 
 int board_uart_send_bytes(const uint8_t* data, size_t length)
 {
+    HAL_StatusTypeDef uart4_status;
+
     if (data == NULL || length == 0U || length > UINT16_MAX) {
         return -1;
     }
 
-    return HAL_UART_Transmit(&huart4,
-                             (uint8_t*)data,
-                             (uint16_t)length,
-                             BOARD_UART_TIMEOUT_MS) == HAL_OK
-               ? 0
-               : -1;
+    uart4_status = HAL_UART_Transmit(&huart4,
+                                     (uint8_t*)data,
+                                     (uint16_t)length,
+                                     BOARD_UART_TIMEOUT_MS);
+
+    (void)HAL_UART_Transmit(&huart1,
+                            (uint8_t*)data,
+                            (uint16_t)length,
+                            BOARD_UART_TIMEOUT_MS);
+
+    return uart4_status == HAL_OK ? 0 : -1;
 }
 
 int board_uart_receive_byte(uint8_t* out_byte)

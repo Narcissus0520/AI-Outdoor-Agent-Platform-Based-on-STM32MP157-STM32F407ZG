@@ -26,7 +26,7 @@
 - 已包含：UART4 PC10/PC11、115200 8N1 和阻塞式 HAL UART 发送，作为 F407 与 MP157 的专用板间通信口
 - 已包含：ICM42688 I2C2 PB10/PB11、INT1 PB12、I2C BSP、ICM42688 寄存器读取和 Mock IMU 兜底
 - 已包含：MMC5603 与 ICM42688 共用 I2C2，地址 `0x30`，20 Hz 磁场帧
-- 已包含：BMP390 与现有传感器共用 I2C2，自动探测 `0x77/0x76`，10 Hz 气压/温度帧；仅完成软件和构建验证
+- 已包含：BMP390 与现有传感器共用 I2C2，自动探测 `0x76/0x77`，10 Hz 气压/温度帧；已完成软件、构建和烧录链路验证，真实模块当前未 ACK
 - 已包含：修正接线后的 ICM42688 真实读数上板验证
 - 已包含：MP157 Linux 真实串口输入和 F407 UART4 -> MP157 USART3 板间联调
 - 已包含：MP157 -> F407 最小 `command_ping -> command_ack` 软件路径
@@ -104,7 +104,7 @@ CubeMX 重新生成时，只允许更新 `firmware/stm32cube/`。业务代码不
 - [x] 使用 MP157 Runtime 验证真实串口链路
 - [ ] 根据测量结果再决定是否引入 DMA 发送队列
 
-历史验收：F407 每 1000 ms 输出 heartbeat、每 10 ms 输出 IMU 帧；ICM42688 曾完成 `status_flags=0x0001` 的 100 Hz 上板验证。当前重新接线后的 ICM42688 为 fallback/error，MMC5603 则已通过 UART4 -> MP157 链路完成真实数据验证。
+历史验收：F407 每 1000 ms 输出 heartbeat、每 10 ms 输出 IMU 帧；ICM42688 曾完成 `status_flags=0x0001` 的 100 Hz 上板验证。当前重新接线后的 ICM42688 为 fallback/error，最新隔离抓包 heartbeat 为 `0x0056`。MMC5603 已通过 UART4 -> MP157 链路完成真实数据历史验证，当前为 I2C 排障已断开。
 
 上板验证环境：
 
@@ -158,7 +158,8 @@ USART1 PA9/PA10 只保留给 F407 USB 下载/Bootloader，不再作为 F407 与 
 
 1. `flash_f407_uart.ps1` 通过一键下载电路控制 DTR/RTS 进入 STM32 ROM UART Bootloader。
 2. 写入 `sensor_hub.bin` 到 `0x08000000`，并执行逐字节回读校验。
-3. 当前应用态协议帧通过 UART4 输出到 MP157 USART3；历史 `verify_f407_uart.ps1` 只适用于仍从 USART1 输出协议帧的固件。
+3. 校验成功后脚本发送 STM32 ROM Bootloader `GO 0x08000000` 启动应用，并释放 DTR/RTS 到运行态。
+4. 当前应用态协议帧通过 UART4 输出到 MP157 USART3，同时镜像到 USART1，便于通过 COM6 抓包诊断。
 4. 若刷写后第一次抓包为 0 字节，重新运行验证脚本或手动复位；该现象来自一键下载电路应用态复位状态切换。
 
 ### Step 6：ICM42688 I2C 接入
@@ -205,7 +206,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_f407_uart.ps1
 - [x] 集成 Bosch BMP3 Sensor API v2.0.5 和 `bmp390_provider_c`
 - [x] 实现 `0x77/0x76` 地址探测、64-bit 补偿、25 Hz normal mode 和 10 Hz `sensor_barometer`
 - [x] 完成 F407 ARM、MP157 Runtime、交叉编译和 frame decoder 构建验证
-- [ ] 烧录并完成 BMP390 真实 I2C 与协议帧上板验证
+- [x] 烧录 BMP390 软件路径并确认 F407 应用态协议链路正常
+- [ ] 完成 BMP390 真实 I2C ACK、补偿值和协议帧上板验证
 - [ ] 决定是否将 PB12 `ICM42688_INT1` 从普通输入升级为 EXTI 数据就绪中断；当前固件按 10 ms 周期轮询读取。
 - [ ] 增加 I2C 瞬时错误后的 ICM42688 重新初始化/恢复策略；当前策略是回退 Mock IMU 并通过 heartbeat `status_flags` 标记。
 - [ ] 评估是否需要 ICM42688 FIFO；当前直接从 `TEMP_DATA1` 连续读取最新 14 字节样本。
@@ -231,7 +233,7 @@ BMP390 SDO -> 3.3V (0x77) 或 GND (0x76)
 BMP390 INT -> NC
 ```
 
-当前只完成软件集成和构建验证，没有烧录。后续上板时应确认 heartbeat bit 5 `0x0020` 置位、bit 6 `0x0040` 未置位，MP157 输出 `barometer_seen=true`，且气压/温度处于合理环境范围。
+当前已完成软件集成、构建和 F407 烧录链路验证，但模块在 `0x76/0x77` 均未 ACK，尚未出现 `sensor_barometer`。后续上板时应确认 heartbeat bit 5 `0x0020` 置位、bit 6 `0x0040` 未置位，MP157 输出 `barometer_seen=true`，且气压/温度处于合理环境范围。
 
 ### Step 8：MP157 Live Serial Integration
 

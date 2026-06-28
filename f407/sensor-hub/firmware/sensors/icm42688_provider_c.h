@@ -8,6 +8,7 @@ extern "C" {
 
 typedef struct {
     int initialized;
+    uint8_t i2c_address;
 } icm42688_provider_t;
 
 int icm42688_provider_init(icm42688_provider_t* provider);

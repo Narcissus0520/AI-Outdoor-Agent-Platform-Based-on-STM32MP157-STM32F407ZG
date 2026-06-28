@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-06-29
+
+### Changed
+
+- Improved F407 UART Bootloader flashing by issuing `GO 0x08000000` after byte-for-byte verification and releasing the one-key download circuit to the application-run state.
+- Mirrored F407 Sensor Hub uplink frames to USART1 for COM6 diagnostics while keeping UART4 as the MP157 application link.
+- Added I2C2 bus recovery before HAL I2C initialization and initialized UARTs before I2C2 so sensor-bus faults do not remove UART diagnostics.
+- Added ICM42688 address fallback from `0x69` to `0x68`.
+- Adjusted BMP390 probing to prefer `0x76`, accept Bosch BMP3/BMP390 chip IDs, and read latest compensated data in the 10 Hz polling path.
+
+### Verified
+
+- F407 build passed.
+- COM6 UART Bootloader flashing passed with bootloader version `0x31`, chip ID `0x0413`, byte-for-byte verification, and application start through `GO 0x08000000`.
+- COM6 USART1 protocol mirror confirmed application frames and zero CRC errors during capture.
+
+### Current Status
+
+- ICM42688 is still not ready in the current wiring state: latest capture reported `status_flags=0x0056`, meaning IMU fallback/error remains active.
+- MMC5603 was intentionally disconnected during I2C isolation, so magnetometer frames are currently absent.
+- BMP390 still has no successful I2C ACK / barometer frame in the current board setup.
+
 ## 2026-06-28
 
 ### Added

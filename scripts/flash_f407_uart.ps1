@@ -113,6 +113,14 @@ function Read-Memory {
     return Read-Bytes $Length
 }
 
+function Start-Application {
+    param([uint32]$Address)
+
+    Send-Command 0x21 "Go command"
+    Write-Bytes (Get-AddressPacket $Address)
+    Expect-Ack "Go address"
+}
+
 try {
     $port.Open()
 
@@ -211,10 +219,9 @@ try {
 
     Write-Host "Programming and byte-for-byte verification succeeded."
 
-    # Select user Flash and reset into the application.
+    Write-Host ("Starting application at 0x{0:X8}." -f $BaseAddress)
+    Start-Application $BaseAddress
     $port.RtsEnable = $false
-    $port.DtrEnable = $false
-    Start-Sleep -Milliseconds 150
     $port.DtrEnable = $true
     Start-Sleep -Milliseconds 300
 } finally {

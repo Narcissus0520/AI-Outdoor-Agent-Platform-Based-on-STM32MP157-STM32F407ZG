@@ -1,4 +1,30 @@
-﻿# Dev Log
+# Dev Log
+
+## 2026-06-29 - F407 I2C Sensor Revalidation Snapshot
+
+### 本次完成
+
+- F407 I2C2 初始化前新增 GPIO open-drain 总线恢复，释放 SDA/SCL 并发送 9 个 SCL 脉冲和 STOP 条件。
+- F407 初始化顺序调整为 GPIO、USART1、UART4、I2C2，I2C 异常时仍保留 UART 诊断能力。
+- F407 上行协议帧同步镜像到 USART1，便于通过 COM6 抓取 heartbeat、IMU、磁力计和气压计帧；UART4 仍作为 MP157 应用链路。
+- `flash_f407_uart.ps1` 在写入和回读校验后使用 STM32 ROM Bootloader `GO 0x08000000` 启动应用，并释放到运行态 DTR/RTS 电平。
+- ICM42688 provider 支持 `0x69` 优先、`0x68` fallback 的地址探测。
+- BMP390 provider 优先探测 `0x76`，再探测 `0x77`，兼容 Bosch BMP3/BMP390 chip-id，并在轮询路径直接读取最新补偿值。
+
+### 验证结果
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_f407.ps1` 通过，当前固件约 Flash `16760 B`、RAM `2024 B`。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flash_f407_uart.ps1 -PortName COM6` 通过，Bootloader version `0x31`，chip ID `0x0413`，逐字节回读校验成功，并通过 `GO 0x08000000` 启动应用。
+- COM6 USART1 协议镜像抓包确认应用态运行和协议 CRC 正常。
+- 在 MMC5603 断开、ICM42688 按 PB10/PB11/AD0=3.3V 接线的状态下，10 秒抓包结果为 `bytes_read=34297`、`frames=1014`、`heartbeat=10`、`imu=1004`、`magnetometer=0`、`barometer=0`、`crc_bad=0`。
+- 最后 heartbeat `status_flags=0x0056`，表示当前 ICM42688 仍为 Mock fallback/error，MMC5603 因断开为 error，BMP390 仍未 ACK/未 ready。
+- 本次未把 ICM42688 或 BMP390 记录为通过；当前提交只固定诊断能力、容错改动和真实故障状态。
+
+### 后续 TODO
+
+- 只保留 ICM42688 一个 I2C2 设备时，继续排查 VCC/GND、SCL/SDA、AD0、电平上拉和模块本体，目标是恢复 heartbeat `0x0001`。
+- BMP390 需要确认 VDD/VDDIO、CSB、SDO 和 I2C 上拉后再复测，目标是出现 `sensor_barometer` 帧且 heartbeat `0x0020` 置位、`0x0040` 清除。
+- MMC5603 当前已按排障需要断开，恢复接线后需复测 `sensor_magnetometer` 20 Hz 帧和 ready 位。
 
 ## 2026-06-28 - MP157 SD Card Runtime Storage
 

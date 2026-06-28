@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 enum {
-    ICM42688_I2C_ADDRESS = 0x69U,
+    ICM42688_I2C_ADDRESS_AD0_HIGH = 0x69U,
+    ICM42688_I2C_ADDRESS_AD0_LOW = 0x68U,
     ICM42688_DEVICE_CONFIG = 0x11U,
     ICM42688_TEMP_DATA1 = 0x1DU,
     ICM42688_PWR_MGMT0 = 0x4EU,
@@ -28,19 +29,19 @@ static void delay_ms(uint32_t delay)
     }
 }
 
-static int write_reg(uint8_t reg, uint8_t value)
+static int write_reg_at(uint8_t address, uint8_t reg, uint8_t value)
 {
-    return board_i2c_mem_write(ICM42688_I2C_ADDRESS, reg, &value, 1U);
+    return board_i2c_mem_write(address, reg, &value, 1U);
 }
 
-static int read_reg(uint8_t reg, uint8_t* value)
+static int read_reg_at(uint8_t address, uint8_t reg, uint8_t* value)
 {
-    return board_i2c_mem_read(ICM42688_I2C_ADDRESS, reg, value, 1U);
+    return board_i2c_mem_read(address, reg, value, 1U);
 }
 
-static int read_regs(uint8_t reg, uint8_t* data, uint16_t length)
+static int read_regs_at(uint8_t address, uint8_t reg, uint8_t* data, uint16_t length)
 {
-    return board_i2c_mem_read(ICM42688_I2C_ADDRESS, reg, data, length);
+    return board_i2c_mem_read(address, reg, data, length);
 }
 
 static int16_t read_i16_be(const uint8_t* data)
@@ -63,53 +64,65 @@ static int16_t temp_raw_to_centi_c(int16_t raw)
     return (int16_t)(2500 + (((int32_t)raw * 10000) / 13248));
 }
 
-int icm42688_provider_init(icm42688_provider_t* provider)
+static int initialize_at_address(icm42688_provider_t* provider, uint8_t address)
 {
     uint8_t value = 0U;
 
+    if (write_reg_at(address, ICM42688_REG_BANK_SEL, 0x00U) != 0) {
+        return -1;
+    }
+
+    if (write_reg_at(address, ICM42688_DEVICE_CONFIG, 0x01U) != 0) {
+        return -1;
+    }
+    delay_ms(100U);
+
+    if (read_reg_at(address, ICM42688_WHO_AM_I, &value) != 0 || value != ICM42688_WHO_AM_I_VALUE) {
+        return -1;
+    }
+
+    if (write_reg_at(address, ICM42688_REG_BANK_SEL, 0x00U) != 0) {
+        return -1;
+    }
+
+    value = (uint8_t)((ICM42688_AFS_4G << 5U) | ICM42688_ODR_100HZ);
+    if (write_reg_at(address, ICM42688_ACCEL_CONFIG0, value) != 0) {
+        return -1;
+    }
+
+    value = (uint8_t)((ICM42688_GFS_1000DPS << 5U) | ICM42688_ODR_100HZ);
+    if (write_reg_at(address, ICM42688_GYRO_CONFIG0, value) != 0) {
+        return -1;
+    }
+
+    if (read_reg_at(address, ICM42688_PWR_MGMT0, &value) != 0) {
+        return -1;
+    }
+    value = (uint8_t)((value & ~0x3FU) | 0x0FU);
+    if (write_reg_at(address, ICM42688_PWR_MGMT0, value) != 0) {
+        return -1;
+    }
+    delay_ms(1U);
+
+    provider->i2c_address = address;
+    provider->initialized = 1;
+    return 0;
+}
+
+int icm42688_provider_init(icm42688_provider_t* provider)
+{
     if (provider == 0) {
         return -1;
     }
 
     provider->initialized = 0;
+    provider->i2c_address = 0U;
 
-    if (write_reg(ICM42688_REG_BANK_SEL, 0x00U) != 0) {
+    if (initialize_at_address(provider, ICM42688_I2C_ADDRESS_AD0_HIGH) != 0 &&
+        initialize_at_address(provider, ICM42688_I2C_ADDRESS_AD0_LOW) != 0) {
         return -1;
     }
 
-    if (write_reg(ICM42688_DEVICE_CONFIG, 0x01U) != 0) {
-        return -1;
-    }
-    delay_ms(100U);
-
-    if (read_reg(ICM42688_WHO_AM_I, &value) != 0 || value != ICM42688_WHO_AM_I_VALUE) {
-        return -1;
-    }
-
-    if (write_reg(ICM42688_REG_BANK_SEL, 0x00U) != 0) {
-        return -1;
-    }
-
-    value = (uint8_t)((ICM42688_AFS_4G << 5U) | ICM42688_ODR_100HZ);
-    if (write_reg(ICM42688_ACCEL_CONFIG0, value) != 0) {
-        return -1;
-    }
-
-    value = (uint8_t)((ICM42688_GFS_1000DPS << 5U) | ICM42688_ODR_100HZ);
-    if (write_reg(ICM42688_GYRO_CONFIG0, value) != 0) {
-        return -1;
-    }
-
-    if (read_reg(ICM42688_PWR_MGMT0, &value) != 0) {
-        return -1;
-    }
-    value = (uint8_t)((value & ~0x3FU) | 0x0FU);
-    if (write_reg(ICM42688_PWR_MGMT0, value) != 0) {
-        return -1;
-    }
-    delay_ms(1U);
-
-    provider->initialized = 1;
     return 0;
 }
 
@@ -128,7 +141,7 @@ int icm42688_provider_read(icm42688_provider_t* provider, uint32_t uptime_ms, im
         return -1;
     }
 
-    if (read_regs(ICM42688_TEMP_DATA1, buffer, ICM42688_BURST_SAMPLE_SIZE) != 0) {
+    if (read_regs_at(provider->i2c_address, ICM42688_TEMP_DATA1, buffer, ICM42688_BURST_SAMPLE_SIZE) != 0) {
         return -1;
     }
 
