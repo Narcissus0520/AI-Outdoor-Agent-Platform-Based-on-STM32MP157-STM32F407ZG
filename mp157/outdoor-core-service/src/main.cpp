@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -41,6 +42,9 @@ void printUsage(const char* programName)
               << " [--mcu-serial-baud baud] [--mcu-serial-capture-seconds seconds]"
               << " [--mcu-command none|ping]"
               << " [--status-output path]"
+              << " [--storage] [--no-storage] [--storage-root path]"
+              << " [--storage-status-output path] [--storage-dashboard-output path]"
+              << " [--storage-log-file path]"
               << " [--board-imu] [--board-imu-source char_device|iio|auto]"
               << " [--board-imu-device-path path] [--board-imu-iio-path path] [--board-imu-samples count]"
               << " [--dashboard-output path] [--dashboard-output-mode text|framebuffer|both]"
@@ -57,6 +61,79 @@ void publishStatus(const outdoor::ipc::StatusPublisher& publisher,
     if (!publisher.publish(status, error)) {
         outdoor::log::Logger::warn("Failed to publish runtime status: " + error);
     }
+}
+
+std::string resolveStoragePath(const std::string& rootPath, const std::string& configuredPath)
+{
+    namespace fs = std::filesystem;
+
+    const fs::path path(configuredPath);
+    if (path.is_absolute()) {
+        return path.lexically_normal().string();
+    }
+
+    return (fs::path(rootPath) / path).lexically_normal().string();
+}
+
+bool prepareStorage(outdoor::config::AppConfig& config,
+                    bool statusOutputOverridden,
+                    bool dashboardOutputOverridden,
+                    std::string& error)
+{
+    namespace fs = std::filesystem;
+
+    if (!config.storageEnabled) {
+        outdoor::log::Logger::clearFileOutput();
+        error.clear();
+        return true;
+    }
+
+    if (config.storageRootPath.empty()) {
+        error = "storage_root_path must not be empty when storage is enabled";
+        return false;
+    }
+
+    try {
+        const fs::path root(config.storageRootPath);
+        fs::create_directories(root);
+        fs::create_directories(root / "logs");
+        fs::create_directories(root / "status");
+        fs::create_directories(root / "dashboard");
+        fs::create_directories(root / "data");
+        fs::create_directories(root / "captures");
+
+        if (!statusOutputOverridden) {
+            config.statusOutputPath = resolveStoragePath(config.storageRootPath, config.storageStatusOutputPath);
+        }
+        if (!dashboardOutputOverridden) {
+            config.dashboardOutputPath = resolveStoragePath(config.storageRootPath, config.storageDashboardOutputPath);
+        }
+
+        const std::string logFilePath = resolveStoragePath(config.storageRootPath, config.storageLogFilePath);
+        if (!outdoor::log::Logger::setFileOutput(logFilePath, error)) {
+            return false;
+        }
+    } catch (const fs::filesystem_error& exception) {
+        error = exception.what();
+        return false;
+    }
+
+    error.clear();
+    return true;
+}
+
+outdoor::runtime::RuntimeStatus buildStatus(const outdoor::runtime::RuntimeManager& runtime,
+                                            const outdoor::config::AppConfig& config,
+                                            const std::string& storageLastError)
+{
+    outdoor::runtime::RuntimeStatus status = runtime.status();
+    status.storageEnabled = config.storageEnabled;
+    status.storageRootPath = config.storageRootPath;
+    status.storageStatusOutputPath = config.statusOutputPath;
+    status.storageDashboardOutputPath = config.dashboardOutputPath;
+    status.storageLogFilePath = outdoor::log::Logger::fileOutputPath();
+    status.storageLastError = storageLastError;
+    return status;
 }
 
 bool parseSizeArgument(const std::string& value, std::size_t& parsed)
@@ -97,6 +174,12 @@ int main(int argc, char* argv[])
     std::string cliMcuCommand;
     std::string cliLogLevel;
     std::string cliStatusOutputPath;
+    bool cliEnableStorage = false;
+    bool cliDisableStorage = false;
+    std::string cliStorageRootPath;
+    std::string cliStorageStatusOutputPath;
+    std::string cliStorageDashboardOutputPath;
+    std::string cliStorageLogFilePath;
     bool cliEnableBoardImu = false;
     bool cliDisableBoardImu = false;
     bool cliDisableDashboard = false;
@@ -194,6 +277,38 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliStatusOutputPath = argv[++index];
+        } else if (arg == "--storage") {
+            cliEnableStorage = true;
+            cliDisableStorage = false;
+        } else if (arg == "--no-storage") {
+            cliDisableStorage = true;
+            cliEnableStorage = false;
+        } else if (arg == "--storage-root") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--storage-root requires a directory path");
+                return 1;
+            }
+            cliStorageRootPath = argv[++index];
+            cliEnableStorage = true;
+            cliDisableStorage = false;
+        } else if (arg == "--storage-status-output") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--storage-status-output requires a file path");
+                return 1;
+            }
+            cliStorageStatusOutputPath = argv[++index];
+        } else if (arg == "--storage-dashboard-output") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--storage-dashboard-output requires a file path");
+                return 1;
+            }
+            cliStorageDashboardOutputPath = argv[++index];
+        } else if (arg == "--storage-log-file") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--storage-log-file requires a file path");
+                return 1;
+            }
+            cliStorageLogFilePath = argv[++index];
         } else if (arg == "--board-imu") {
             cliEnableBoardImu = true;
             cliDisableBoardImu = false;
@@ -358,6 +473,30 @@ int main(int argc, char* argv[])
         config.statusOutputPath = cliStatusOutputPath;
     }
 
+    if (cliEnableStorage) {
+        config.storageEnabled = true;
+    }
+
+    if (cliDisableStorage) {
+        config.storageEnabled = false;
+    }
+
+    if (!cliStorageRootPath.empty()) {
+        config.storageRootPath = cliStorageRootPath;
+    }
+
+    if (!cliStorageStatusOutputPath.empty()) {
+        config.storageStatusOutputPath = cliStorageStatusOutputPath;
+    }
+
+    if (!cliStorageDashboardOutputPath.empty()) {
+        config.storageDashboardOutputPath = cliStorageDashboardOutputPath;
+    }
+
+    if (!cliStorageLogFilePath.empty()) {
+        config.storageLogFilePath = cliStorageLogFilePath;
+    }
+
     if (cliEnableBoardImu) {
         config.boardImuEnabled = true;
     }
@@ -440,9 +579,18 @@ int main(int argc, char* argv[])
 
     outdoor::log::Logger::setMinimumLevel(config.logLevel);
 
+    std::string storageLastError;
+    if (!prepareStorage(config, !cliStatusOutputPath.empty(), !cliDashboardOutputPath.empty(), storageLastError)) {
+        outdoor::log::Logger::error("Storage initialization failed: " + storageLastError);
+        return 1;
+    }
+
     outdoor::log::Logger::info("Outdoor Core Runtime starting");
     outdoor::log::Logger::info("Config file: " + configPath);
     outdoor::log::Logger::info(std::string("Log level: ") + outdoor::log::logLevelToString(config.logLevel));
+    outdoor::log::Logger::info(std::string("Storage enabled: ") + (config.storageEnabled ? "true" : "false"));
+    outdoor::log::Logger::info("Storage root path: " + config.storageRootPath);
+    outdoor::log::Logger::info("Storage log file: " + outdoor::log::Logger::fileOutputPath());
     outdoor::log::Logger::info("GNSS input mode: " + config.gnssInputMode);
     outdoor::log::Logger::info("Input source: " + config.nmeaInputPath);
     outdoor::log::Logger::info("GNSS serial device: " + config.gnssSerialDevice);
@@ -523,27 +671,27 @@ int main(int argc, char* argv[])
     runtime.setGnssStatus(gnssStatus);
     runtime.setMcuStatus(mcuStatus);
     runtime.setBoardImuStatus(boardImuStatus);
-    publishStatus(statusPublisher, runtime.status());
+    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
 
     if (!runtime.start()) {
         runtime.setGnssStatus(gnssStatus);
         runtime.setMcuStatus(mcuStatus);
         runtime.setBoardImuStatus(boardImuStatus);
-        publishStatus(statusPublisher, runtime.status());
+        publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
         outdoor::log::Logger::error("Outdoor Core Runtime failed to start");
         return 1;
     }
     runtime.setGnssStatus(gnssStatus);
     runtime.setMcuStatus(mcuStatus);
     runtime.setBoardImuStatus(boardImuStatus);
-    publishStatus(statusPublisher, runtime.status());
+    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
 
     if (!runtime.run()) {
         runtime.stop();
         runtime.setGnssStatus(gnssStatus);
         runtime.setMcuStatus(mcuStatus);
         runtime.setBoardImuStatus(boardImuStatus);
-        publishStatus(statusPublisher, runtime.status());
+        publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
         outdoor::log::Logger::error("Outdoor Core Runtime failed while running");
         return 1;
     }
@@ -552,7 +700,7 @@ int main(int argc, char* argv[])
     runtime.setGnssStatus(gnssStatus);
     runtime.setMcuStatus(mcuStatus);
     runtime.setBoardImuStatus(boardImuStatus);
-    publishStatus(statusPublisher, runtime.status());
+    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
     outdoor::log::Logger::info("Outdoor Core Runtime stopped");
     return 0;
 }

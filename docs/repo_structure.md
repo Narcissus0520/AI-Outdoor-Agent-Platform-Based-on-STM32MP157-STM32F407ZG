@@ -27,6 +27,8 @@ mp157/outdoor-core-service/
 
 当前 MP157 Runtime 也包含 `DashboardService`，默认生成 `runtime/dashboard.txt` 文本仪表盘，并可通过 `dashboard_output_mode = framebuffer | both` 写入 `/dev/fb0` 显示 `outdoor-agent` 7 英寸 RGB 屏仪表盘；这仍是轻量 fbdev 原型，不包含完整 GUI、触摸交互或窗口系统。
 
+当前 MP157 Runtime 支持 SD 卡文件/目录型 storage。默认关闭，当前板端实测启用 `--storage-root /run/media/mmcblk1p1/outdoor-agent` 后会在 SD 卡挂载目录下创建 `status/`、`dashboard/`、`logs/`、`data/` 和 `captures/`，用于保存 Runtime 状态、文本仪表盘、运行日志和后续采集数据。`/mnt/sdcard` 当前不存在，如需该路径应在系统层增加挂载规则或软链接。
+
 当前 MP157 Runtime 也包含 `McuSerialService`、`McuFrameStreamDecoder` 和 `McuCommand`，用于从 `/dev/ttySTM1` 读取 F407 UART4 输出的 MCU 二进制帧，并通过同一串口发送最小 `command_ping` 下行命令；上行读取路径已通过 `F407 PC10 UART4_TX -> MP157 PD9 USART3_RX` 上板验证，下行物理链路已通过 MP157 shell raw ping/ack 验证，新版 ARM Runtime 板端复测仍待完成。
 
 F407 当前还通过 `sensor_magnetometer` 帧上报 MMC5603 三轴磁场，MP157 Runtime 将其解析为独立 `magnetometer` 状态。

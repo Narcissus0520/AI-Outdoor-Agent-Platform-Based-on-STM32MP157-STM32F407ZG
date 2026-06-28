@@ -1,9 +1,11 @@
 #include "log/logger.h"
 
-#include <chrono>
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -13,6 +15,8 @@ namespace outdoor::log {
 namespace {
 
 LogLevel minimumLevel = LogLevel::Info;
+std::ofstream fileOutput;
+std::string activeFileOutputPath;
 
 std::string toLower(std::string value)
 {
@@ -85,6 +89,48 @@ void Logger::setMinimumLevel(LogLevel level)
     minimumLevel = level;
 }
 
+bool Logger::setFileOutput(const std::string& filePath, std::string& error)
+{
+    namespace fs = std::filesystem;
+
+    try {
+        const fs::path path(filePath);
+        const fs::path parent = path.parent_path();
+        if (!parent.empty()) {
+            fs::create_directories(parent);
+        }
+
+        fileOutput.close();
+        fileOutput.clear();
+        fileOutput.open(path, std::ios::app);
+        if (!fileOutput.is_open()) {
+            error = "failed to open log file: " + path.string();
+            activeFileOutputPath.clear();
+            return false;
+        }
+        activeFileOutputPath = path.string();
+    } catch (const fs::filesystem_error& exception) {
+        error = exception.what();
+        activeFileOutputPath.clear();
+        return false;
+    }
+
+    error.clear();
+    return true;
+}
+
+void Logger::clearFileOutput()
+{
+    fileOutput.close();
+    fileOutput.clear();
+    activeFileOutputPath.clear();
+}
+
+std::string Logger::fileOutputPath()
+{
+    return activeFileOutputPath;
+}
+
 void Logger::debug(const std::string& message)
 {
     write(LogLevel::Debug, message);
@@ -111,10 +157,17 @@ void Logger::write(LogLevel level, const std::string& message)
         return;
     }
 
+    std::ostringstream line;
+    line << "[" << currentTimestamp() << "] "
+         << "[" << logLevelToString(level) << "] "
+         << message << '\n';
+
     auto& output = (level == LogLevel::Error) ? std::cerr : std::cout;
-    output << "[" << currentTimestamp() << "] "
-           << "[" << logLevelToString(level) << "] "
-           << message << '\n';
+    output << line.str();
+    if (fileOutput.is_open()) {
+        fileOutput << line.str();
+        fileOutput.flush();
+    }
 }
 
 } // namespace outdoor::log

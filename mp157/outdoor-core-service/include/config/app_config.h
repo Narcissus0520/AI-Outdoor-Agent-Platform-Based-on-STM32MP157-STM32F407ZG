@@ -21,6 +21,11 @@ struct AppConfig {
     std::uint32_t mcuSerialCaptureSeconds = 5;
     std::string mcuCommand = "none";
     std::string statusOutputPath = "runtime/runtime_status.json";
+    bool storageEnabled = false;
+    std::string storageRootPath = "/mnt/sdcard/outdoor-agent";
+    std::string storageStatusOutputPath = "status/runtime_status.json";
+    std::string storageDashboardOutputPath = "dashboard/dashboard.txt";
+    std::string storageLogFilePath = "logs/outdoor_core_runtime.log";
     bool boardImuEnabled = false;
     std::string boardImuSource = "char_device";
     std::string boardImuDevicePath = "/dev/icm20608";

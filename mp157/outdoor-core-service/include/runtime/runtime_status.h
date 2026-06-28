@@ -23,6 +23,12 @@ struct RuntimeStatus {
     std::size_t serviceCount = 0;
     std::size_t startedServiceCount = 0;
     std::string lastError;
+    bool storageEnabled = false;
+    std::string storageRootPath;
+    std::string storageStatusOutputPath;
+    std::string storageDashboardOutputPath;
+    std::string storageLogFilePath;
+    std::string storageLastError;
     outdoor::gnss::GnssStatus gnssStatus;
     outdoor::mcu::McuStatus mcuStatus;
     outdoor::sensors::BoardImuStatus boardImuStatus;

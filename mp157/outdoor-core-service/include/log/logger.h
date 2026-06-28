@@ -17,6 +17,9 @@ const char* logLevelToString(LogLevel level);
 class Logger {
 public:
     static void setMinimumLevel(LogLevel level);
+    static bool setFileOutput(const std::string& filePath, std::string& error);
+    static void clearFileOutput();
+    static std::string fileOutputPath();
 
     static void debug(const std::string& message);
     static void info(const std::string& message);

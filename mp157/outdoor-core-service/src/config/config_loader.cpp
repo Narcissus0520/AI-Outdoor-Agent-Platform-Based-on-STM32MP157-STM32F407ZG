@@ -182,6 +182,23 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
             config.mcuCommand = value;
         } else if (key == "status_output_path") {
             config.statusOutputPath = value;
+        } else if (key == "storage_enabled") {
+            bool parsed = false;
+            if (!parseBool(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber << ": unsupported storage_enabled '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.storageEnabled = parsed;
+        } else if (key == "storage_root_path") {
+            config.storageRootPath = value;
+        } else if (key == "storage_status_output_path") {
+            config.storageStatusOutputPath = value;
+        } else if (key == "storage_dashboard_output_path") {
+            config.storageDashboardOutputPath = value;
+        } else if (key == "storage_log_file_path") {
+            config.storageLogFilePath = value;
         } else if (key == "board_imu_enabled") {
             bool parsed = false;
             if (!parseBool(value, parsed)) {

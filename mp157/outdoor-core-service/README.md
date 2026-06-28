@@ -8,6 +8,7 @@
 
 - C++17 / CMake Linux Runtime 工程
 - 日志、配置和 Runtime Service 生命周期
+- MP157 SD 卡持久化存储适配：启用后保存状态 JSON、文本仪表盘和运行日志
 - NMEA 文件回放与 RMC/GGA/VTG/GSA/GSV Parser
 - MP157 UART5 GNSS/NMEA serial 输入路径，已验证 `/dev/ttySTM2`、38400 8N1
 - GNSS 基础定位状态输出
@@ -76,6 +77,24 @@ Windows CMake 默认 Visual Studio 生成器:
 runtime/runtime_status.json
 runtime/dashboard.txt
 ```
+
+MP157 插入并挂载 SD 卡后，可以把 Runtime 输出切换到 SD 卡目录。默认配置不强制启用 SD 卡，避免 PC 开发和自动化测试依赖板端挂载状态：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf --storage-root /run/media/mmcblk1p1/outdoor-agent
+```
+
+启用后会自动创建：
+
+```text
+/run/media/mmcblk1p1/outdoor-agent/status/runtime_status.json
+/run/media/mmcblk1p1/outdoor-agent/dashboard/dashboard.txt
+/run/media/mmcblk1p1/outdoor-agent/logs/outdoor_core_runtime.log
+/run/media/mmcblk1p1/outdoor-agent/data/
+/run/media/mmcblk1p1/outdoor-agent/captures/
+```
+
+本项目当前 MP157 实测 SD 卡自动挂载为 `/run/media/mmcblk1p1`；`/mnt/sdcard` 当前不存在。若后续系统镜像改为固定挂载 `/mnt/sdcard`，只需要替换 `--storage-root` 或配置中的 `storage_root_path`。`runtime_status.json` 会新增 `storage` 节点，记录实际输出路径和 storage 初始化错误。
 
 7 英寸 RGB 屏 framebuffer 仪表盘运行方式：
 
@@ -149,6 +168,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - fake character-device / fake-IIO 的 ICM20608 换算测试
 - MCU CRC16 错误拒绝
 - `runtime_status.json` 状态输出
+- storage 模式下的状态 JSON、文本 dashboard 和日志文件生成
 
 ## 配置
 
@@ -173,6 +193,11 @@ mcu_serial_baud = 115200
 mcu_serial_capture_seconds = 5
 mcu_command = none
 status_output_path = runtime/runtime_status.json
+storage_enabled = false
+storage_root_path = /run/media/mmcblk1p1/outdoor-agent
+storage_status_output_path = status/runtime_status.json
+storage_dashboard_output_path = dashboard/dashboard.txt
+storage_log_file_path = logs/outdoor_core_runtime.log
 board_imu_enabled = false
 board_imu_source = char_device
 board_imu_device_path = /dev/icm20608

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-06-28
+
+### Added
+
+- Added MP157 Runtime SD card storage mode with `storage_enabled`, `storage_root_path`, storage output paths, and `--storage-root`.
+- Added optional file logging while preserving stdout/stderr logs.
+- Added a top-level `storage` object to `runtime_status.json`.
+- Added ADR-0012 for the SD card file-storage decision.
+
+### Verified
+
+- MP157 local CMake build passed.
+- Runtime verification script passed, including storage directory, status, dashboard, and log-file creation.
+- CTest passed: 5/5 tests.
+- MP157 board check confirmed the SD card is mounted at `/run/media/mmcblk1p1`; `/mnt/sdcard` does not currently exist.
+- MP157 board storage validation passed with `--storage-root /run/media/mmcblk1p1/outdoor-agent`, producing status, dashboard, and log files on the SD card.
+
+### Deferred
+
+- Long-term sensor history files and log rotation are not implemented yet.
+
 ## 2026-06-26
 
 ### Added

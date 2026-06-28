@@ -5,6 +5,10 @@ $output = Join-Path $serviceRoot "outdoor_core_runtime_verify.exe"
 $statusOutput = Join-Path $serviceRoot "runtime\runtime_status_verify.json"
 $edgeStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_edge_verify.json"
 $dashboardOutput = Join-Path $serviceRoot "runtime\dashboard_verify.txt"
+$storageRoot = Join-Path $serviceRoot "runtime\storage_verify"
+$storageStatusOutput = Join-Path $storageRoot "status\runtime_status.json"
+$storageDashboardOutput = Join-Path $storageRoot "dashboard\dashboard.txt"
+$storageLogOutput = Join-Path $storageRoot "logs\outdoor_core_runtime.log"
 
 function Remove-TemporaryFile {
     param (
@@ -191,6 +195,45 @@ try {
         throw "warn log level did not suppress INFO output"
     }
 
+    if (Test-Path $storageRoot) {
+        Remove-Item -LiteralPath $storageRoot -Recurse -Force
+    }
+
+    $storageOutput = & $output --config "config\runtime.conf" --storage-root $storageRoot --log-level info 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "storage runtime execution failed"
+    }
+
+    if (!(Test-Path $storageStatusOutput)) {
+        throw "storage status output file was not created"
+    }
+
+    if (!(Test-Path $storageDashboardOutput)) {
+        throw "storage dashboard output file was not created"
+    }
+
+    if (!(Test-Path $storageLogOutput)) {
+        throw "storage log output file was not created"
+    }
+
+    $storageStatusText = Get-Content $storageStatusOutput -Raw
+    if ($storageStatusText -notmatch '"storage": \{') {
+        throw "storage status output did not contain storage object"
+    }
+
+    if ($storageStatusText -notmatch '"enabled": true') {
+        throw "storage status output did not report enabled storage"
+    }
+
+    if (($storageOutput -join "`n") -notmatch "Storage enabled: true") {
+        throw "storage runtime output did not report enabled storage"
+    }
+
+    $storageLogText = Get-Content $storageLogOutput -Raw
+    if ($storageLogText -notmatch "Outdoor Core Runtime starting") {
+        throw "storage log output did not contain runtime logs"
+    }
+
     Write-Host "Stage 1 runtime verification passed."
 } finally {
     Pop-Location
@@ -199,4 +242,7 @@ try {
     Remove-TemporaryFile $statusOutput
     Remove-TemporaryFile $edgeStatusOutput
     Remove-TemporaryFile $dashboardOutput
+    if (Test-Path $storageRoot) {
+        Remove-Item -LiteralPath $storageRoot -Recurse -Force
+    }
 }

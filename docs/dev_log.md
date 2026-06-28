@@ -1,5 +1,44 @@
 ﻿# Dev Log
 
+## 2026-06-28 - MP157 SD Card Runtime Storage
+
+### 本次完成
+
+- 新增 MP157 Runtime storage 配置，默认关闭，板端可通过 `--storage-root /run/media/mmcblk1p1/outdoor-agent` 启用。
+- 启用 storage 后自动创建 `status/`、`dashboard/`、`logs/`、`data/` 和 `captures/` 目录。
+- 将 `runtime_status.json`、文本 dashboard 和 Runtime 日志重定向到 storage root。
+- `runtime_status.json` 新增 `storage` 节点，记录 storage 是否启用、根目录、输出路径和初始化错误。
+- 新增 ADR-0012，记录当前采用 SD 卡文件/目录型持久化的原因。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/config/app_config.h`
+- `mp157/outdoor-core-service/src/config/config_loader.cpp`
+- `mp157/outdoor-core-service/include/log/logger.h`
+- `mp157/outdoor-core-service/src/log/logger.cpp`
+- `mp157/outdoor-core-service/include/runtime/runtime_status.h`
+- `mp157/outdoor-core-service/src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/config/runtime.conf`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `docs/adr/0012-use-sd-card-file-storage.md`
+- README、设计文档、Stage 1 计划和 changelog
+
+### 验证结果
+
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过，并覆盖 storage 模式目录和文件生成。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过，5/5 tests passed。
+- MP157 COM3 上板检查确认：`/mnt/sdcard` 当前不存在，SD 卡实际挂载点为 `/run/media/mmcblk1p1`，vfat、rw。
+- 已通过串口部署当前 ARM Runtime 包，包 SHA256 为 `254499abc4d5fa961cd31c04b4ec05fcc99974c3785fa3a96939fa02d2895bb4`。
+- 板端执行 `--storage-root /run/media/mmcblk1p1/outdoor-agent` 返回 `EXIT:0`，并确认 `STATUS_OK`、`DASHBOARD_OK`、`LOG_OK`。
+- 板端 `runtime_status.json` 中 `storage.enabled=true`、`storage.root_path=/run/media/mmcblk1p1/outdoor-agent`、`storage.last_error=""`。
+
+### 后续 TODO
+
+- 增加 GNSS、IMU、磁力计、气压计历史数据记录服务。
+- 增加日志轮转或按日期分文件，避免长期运行占满 SD 卡。
+
 ## 2026-06-26 - F407 BMP390 Software Integration
 
 ### 本次完成
