@@ -1,5 +1,44 @@
 # Dev Log
 
+## 2026-07-21 - Stage 2.4 Repeatable Board Acceptance Harness
+
+### 本次完成
+
+- 新增 `run_stage2_board_acceptance.sh`；只有 root 显式传入 `--confirm` 才进入 systemd 状态变更。
+- 在第一次 mutation 前保存 Runtime active/enabled 状态，EXIT/INT/TERM 收尾恢复并验证初始状态；拒绝活动长测、异常初始状态和非 unit 管理的 Runtime。
+- 板端步骤覆盖 `systemd-analyze verify`、隔离 Unix socket self-test、0750/0660 权限、三次查询、Agent mock 无/有 context、SIGTERM/socket 清理、重新启动和单次 SIGKILL 自动恢复。
+- socket stale/active collision 通过既有 `unix_status_service_tests` 的 ARM 产物在唯一 `/tmp` 路径验证，不并行启动第二个会访问传感器的 Runtime。
+- 部署清单新增 `/opt/outdoor-agent/tests/unix_status_service_tests` 与 Stage 2 验收脚本，继续默认不 enable/start Runtime，也不会自动执行验收。
+- 新增主机静态 contract verifier 和六个负向 fixture，分别证明确认门槛、EXIT trap、SIGKILL、三次查询、禁止整板电源命令和 self-test 部署不能被弱化。
+- ADR-0028 记录手工命令、无恢复脚本与显式确认/状态恢复方案比较，以及副作用和证据边界。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/scripts/run_stage2_board_acceptance.sh`
+- `mp157/outdoor-core-service/scripts/verify_stage2_board_acceptance.ps1`
+- `mp157/outdoor-core-service/scripts/verify_stage2_board_acceptance_tests.ps1`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `scripts/deploy_mp157_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`、`docs/stage2_plan.md`
+- `docs/adr/0028-use-state-restoring-stage2-board-acceptance.md`
+- `docs/changelog.md`、`docs/dev_log.md`、`docs/troubleshooting_log.md`
+
+### 验证结果
+
+- MP157 Windows GCC Release CTest 14/14 通过。
+- GNU ARM Linux 9.2.1 全目标交叉构建通过：Runtime 273944 B、status query 23168 B、Agent terminal 40124 B、Unix socket self-test 64336 B。
+- F407 GCC Release CTest 7/7 通过。
+- 完整 `verify_runtime.ps1` 通过，包含 supervision verifier tests、Stage 2 acceptance 正向/六个负向 contract tests 和 Runtime smoke。
+- PowerShell parser、Git for Windows `sh -n`、无 `--confirm` 返回 2 的 guard 和 `git diff --check` 通过。
+- 未执行部署、板端验收脚本、COM3/COM9、systemd 状态变更、复位、烧录或物理上下电。
+
+### 后续 TODO
+
+- 用户进入统一联调窗口后部署 ARM 产物，并显式执行 `/opt/outdoor-agent/scripts/run_stage2_board_acceptance.sh --confirm`。
+- 回传完整 `/tmp/outdoor-agent-stage2-acceptance-*` 目录；核对 PASS 报告和初始状态恢复后再关闭 Stage 2 板端项。
+- Stage 1 的 ICM42688 电气/波形、小时长测、掉电、室外 GNSS fix 和罗盘实采标定继续保持未完成。
+
 ## 2026-07-21 - Stage 2.3 Local Agent Mock Boundary
 
 ### 本次完成

@@ -3,6 +3,7 @@ param(
     [string]$RuntimePath = "",
     [string]$StatusQueryPath = "",
     [string]$AgentTerminalPath = "",
+    [string]$UnixStatusTestPath = "",
     [string]$ConfigPath = "",
     [string]$RuntimeServiceConfigPath = "",
     [string]$InstallRoot = "/opt/outdoor-agent",
@@ -36,6 +37,9 @@ if ([string]::IsNullOrWhiteSpace($StatusQueryPath)) {
 if ([string]::IsNullOrWhiteSpace($AgentTerminalPath)) {
     $AgentTerminalPath = Join-Path $repoRoot "mp157/outdoor-core-service/build-arm/outdoor_agent_terminal"
 }
+if ([string]::IsNullOrWhiteSpace($UnixStatusTestPath)) {
+    $UnixStatusTestPath = Join-Path $repoRoot "mp157/outdoor-core-service/build-arm/unix_status_service_tests"
+}
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $repoRoot "mp157/outdoor-core-service/config/runtime.conf"
 }
@@ -47,12 +51,14 @@ $xmodemScript = Join-Path $PSScriptRoot "send_xmodem.ps1"
 $servicePath = Join-Path $repoRoot "mp157/outdoor-core-service/deploy/systemd/outdoor-agent-icm20608.service"
 $runtimeServicePath = Join-Path $repoRoot "mp157/outdoor-core-service/deploy/systemd/outdoor-agent-runtime.service"
 $supervisionVerifierPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/verify_runtime_supervision.ps1"
+$stage2AcceptanceVerifierPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/verify_stage2_board_acceptance.ps1"
 $healthPreflightPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_board_health_preflight.sh"
 $healthMonitorPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/monitor_board_runtime_health.sh"
 $longTestPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_board_long_validation.sh"
 $auditPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/audit_board_long_validation.sh"
 $crashRecoveryPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_board_crash_recovery_validation.sh"
 $gnssFixPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_board_gnss_fix_validation.sh"
+$stage2AcceptancePath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_stage2_board_acceptance.sh"
 $nmeaSamplePath = Join-Path $repoRoot "mp157/outdoor-core-service/data/nmea_sample.txt"
 $mcuMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data/mcu_mock_frames.txt"
 $mcuValidMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data/mcu_mock_frames_valid.txt"
@@ -62,6 +68,7 @@ $localFiles = @(
     @{ Local = $RuntimePath; Remote = "$InstallRoot/bin/outdoor_core_runtime"; Mode = "0755" },
     @{ Local = $StatusQueryPath; Remote = "$InstallRoot/bin/outdoor_status_query"; Mode = "0755" },
     @{ Local = $AgentTerminalPath; Remote = "$InstallRoot/bin/outdoor_agent_terminal"; Mode = "0755" },
+    @{ Local = $UnixStatusTestPath; Remote = "$InstallRoot/tests/unix_status_service_tests"; Mode = "0755" },
     @{ Local = $ConfigPath; Remote = "$InstallRoot/config/runtime.conf"; Mode = "0644" },
     @{ Local = $RuntimeServiceConfigPath; Remote = "$InstallRoot/config/outdoor_agent_service.conf"; Mode = "0644" },
     @{ Local = $healthPreflightPath; Remote = "$InstallRoot/scripts/run_board_health_preflight.sh"; Mode = "0755" },
@@ -70,6 +77,7 @@ $localFiles = @(
     @{ Local = $auditPath; Remote = "$InstallRoot/scripts/audit_board_long_validation.sh"; Mode = "0755" },
     @{ Local = $crashRecoveryPath; Remote = "$InstallRoot/scripts/run_board_crash_recovery_validation.sh"; Mode = "0755" },
     @{ Local = $gnssFixPath; Remote = "$InstallRoot/scripts/run_board_gnss_fix_validation.sh"; Mode = "0755" },
+    @{ Local = $stage2AcceptancePath; Remote = "$InstallRoot/scripts/run_stage2_board_acceptance.sh"; Mode = "0755" },
     @{ Local = $nmeaSamplePath; Remote = "$InstallRoot/data/nmea_sample.txt"; Mode = "0644" },
     @{ Local = $mcuMockFramesPath; Remote = "$InstallRoot/data/mcu_mock_frames.txt"; Mode = "0644" },
     @{ Local = $mcuValidMockFramesPath; Remote = "$InstallRoot/data/mcu_mock_frames_valid.txt"; Mode = "0644" },
@@ -79,6 +87,7 @@ $localFiles = @(
 )
 
 & $supervisionVerifierPath -UnitPath $runtimeServicePath -ConfigPath $RuntimeServiceConfigPath
+& $stage2AcceptanceVerifierPath -ScriptPath $stage2AcceptancePath -DeploymentScriptPath $PSCommandPath
 
 foreach ($entry in $localFiles) {
     $entry.Local = (Resolve-Path -LiteralPath $entry.Local).Path
@@ -147,7 +156,7 @@ function Invoke-BoardCommand {
 }
 
 Write-Host "Creating persistent MP157 deployment directories under $InstallRoot."
-[void](Invoke-BoardCommand -Command "install -d -m 0755 $InstallRoot/bin $InstallRoot/config $InstallRoot/data $InstallRoot/scripts")
+[void](Invoke-BoardCommand -Command "install -d -m 0755 $InstallRoot/bin $InstallRoot/config $InstallRoot/data $InstallRoot/scripts $InstallRoot/tests")
 
 foreach ($entry in $localFiles) {
     Write-Host "Uploading $($entry.Local) -> $($entry.Remote)"
@@ -208,6 +217,7 @@ $syntaxCommands = @(
     "sh -n $InstallRoot/scripts/audit_board_long_validation.sh",
     "sh -n $InstallRoot/scripts/run_board_crash_recovery_validation.sh",
     "sh -n $InstallRoot/scripts/run_board_gnss_fix_validation.sh",
+    "sh -n $InstallRoot/scripts/run_stage2_board_acceptance.sh",
     'systemctl is-active --quiet outdoor-agent-icm20608.service',
     'systemctl is-enabled --quiet outdoor-agent-icm20608.service',
     'test "$(systemctl show -p LoadState outdoor-agent-runtime.service)" = "LoadState=loaded"',

@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added an explicit-confirmation Stage 2 board acceptance harness that preserves/restores Runtime active/enabled state and records socket, Agent context, SIGTERM, failure-restart, hash, and journal evidence.
+- Added a host contract verifier with six negative fixtures, ADR-0028, and deployment of the ARM `unix_status_service_tests` binary for isolated stale/active socket lifecycle checks.
 - Added schema-v1 bounded Local Agent request/response types, a replaceable `IAgentBackend`, synchronous `LocalAgentService`, deterministic `mock_no_inference`, and JSON serialization.
 - Added `outdoor_agent_terminal` with JSON/text output and opt-in read-only Runtime status context, plus boundary/error/backend/CLI tests and ADR-0027.
 - Added a systemd `Type=simple` Runtime unit, headless live-source service config, volatile `/run/outdoor-agent` status/socket paths, bounded failure restart, SIGTERM handling, sandboxing, and a closed device allow-list.
@@ -17,6 +19,7 @@
 
 ### Changed
 
+- MP157 deployment now creates `/opt/outdoor-agent/tests`, packages the socket self-test and Stage 2 acceptance script, and syntax-checks the deployed shell script; it still does not execute acceptance or enable/start Runtime by default.
 - `UnixStatusClient` now accepts a caller-selected response limit; the Agent terminal constrains Runtime context reads to 64 KiB while the standalone query client retains its 1 MiB default.
 - MP157 deployment now packages `outdoor_agent_terminal`; this does not enable a model runtime or start any Agent daemon.
 - MP157 deployment now packages `outdoor-agent-runtime.service` and `outdoor_agent_service.conf`; `-StartRuntimeService` implies `-EnableRuntimeService`, while the default performs no Runtime enable/start action.
@@ -24,6 +27,7 @@
 
 ### Verification
 
+- Stage 2 acceptance contract and its six weakening fixtures passed; PowerShell parser, Git for Windows `sh -n`, and the no-confirm exit-2 guard passed. GNU ARM Linux 9.2.1 linked the 64336-byte socket self-test. The board acceptance script was not executed.
 - MP157 Windows GCC Release CTest passed 14/14, including Local Agent boundary, terminal help, and deterministic mock smoke; GNU ARM Linux 9.2.1 linked the Agent terminal and all targets. No real inference or board execution was performed.
 - Runtime supervision contract and four negative fixtures passed; the full Runtime verifier loaded the service config and completed a file/mock no-hardware smoke. No deployment or systemd state change was executed.
 - MP157 Windows GCC Release CTest passed 11/11, Runtime verifier passed, and GNU ARM Linux 9.2.1 linked all Runtime, query-client, and Unix socket test targets. No COM3/COM9, deployment, reset, power-cycle, or board action was performed.
