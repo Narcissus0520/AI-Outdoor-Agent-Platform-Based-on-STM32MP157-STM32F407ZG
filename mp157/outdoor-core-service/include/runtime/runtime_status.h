@@ -26,6 +26,8 @@ struct RuntimeStatus {
     std::size_t activeServiceCount = 0;
     std::size_t completedServiceCount = 0;
     std::string lastError;
+    bool statusSocketEnabled = false;
+    std::string statusSocketPath;
     bool storageEnabled = false;
     std::string storageRootPath;
     std::string storageStatusOutputPath;

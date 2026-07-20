@@ -69,6 +69,10 @@
 | TRB-20260719-030 | 2026-07-19 | Compass Calibration Tool | 首轮拟合测试挂起、强磁离群点使椭球非正定且 Release 断言假绿 | 已关闭 | A | [记录](#trb-20260719-030-罗盘校准器测试挂起与离群点拟合失败) |
 | TRB-20260719-031 | 2026-07-19 | Repository Hygiene | 罗盘工具 GCC `build-gcc` 产物未被现有忽略规则覆盖 | 已关闭 | A | [记录](#trb-20260719-031-罗盘工具-build-gcc-产物未被忽略) |
 | TRB-20260720-032 | 2026-07-20 | F407 Diagnostic Build | 新建隔离构建目录时 toolchain/Ninja 参数未可靠解析 | 已关闭 | A | [记录](#trb-20260720-032-f407-隔离构建参数解析失败) |
+| TRB-20260721-033 | 2026-07-21 | MP157 Build Baseline | 复用已有 `build` 目录时 CMake 生成器冲突 | 已关闭 | A | [记录](#trb-20260721-033-复用已有-build-目录时-cmake-生成器冲突) |
+| TRB-20260721-034 | 2026-07-21 | F407 Host Tests | Release 禁用 `assert` 导致测试副作用丢失、假绿与数值异常 | 已关闭 | A | [记录](#trb-20260721-034-release-禁用-assert-导致测试副作用丢失与假绿) |
+| TRB-20260721-035 | 2026-07-21 | MP157 ARM Build | PowerShell 将交叉编译器变量作为字面量传给 CMake | 已关闭 | A | [记录](#trb-20260721-035-powershell-将交叉编译器变量作为字面量传给-cmake) |
+| TRB-20260721-036 | 2026-07-21 | MP157 Unix IPC Test | ARM 测试目标使用 `std::thread` 但未显式链接 pthread | 已关闭 | A | [记录](#trb-20260721-036-arm-测试目标未显式链接-pthread) |
 
 ## 问题详细复盘
 
@@ -735,6 +739,118 @@
 | 证据等级 | A：CMake 原始错误、超时、策略拒绝、成功配置输出、固件哈希和烧录回读均为直接证据。 |
 
 面试讲述要点：新构建目录没有历史 cache，不能把生成器、toolchain 和构建工具视为隐含环境。对每个阶段立即检查退出码，并用绝对路径参数数组保存参数边界，可避免配置失败后继续对不存在产物做“验证”。
+
+### TRB-20260721-033: 复用已有 build 目录时 CMake 生成器冲突
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.1 开发前主机基线配置 |
+| 模块与版本 | `mp157/outdoor-core-service`；CMake；当前分支 `agent/stage2-unix-status-ipc` |
+| 环境与前提 | Windows PowerShell；仓库内 `build` 目录已存在；本轮尝试显式使用 Ninja 生成器。未执行任何串口、复位、烧录或其他硬件交互。 |
+| 问题现象 | `cmake -S . -B build -G Ninja` 返回：`generator : Ninja Does not match the generator used previously: Visual Studio 17 2022`。 |
+| 影响范围 | 首轮 MP157 主机基线未配置成功；并行验证调用提前返回，尚不能据此判断其余模块结果。源码和已有构建缓存未被修改。 |
+| 复现步骤 | 在已有 Visual Studio CMake cache 的 `mp157/outdoor-core-service/build` 上显式执行 Ninja 配置。 |
+| 预期结果 | 完成独立 Release 配置、构建和 CTest。 |
+| 实际结果 | CMake 在配置阶段拒绝混用生成器并返回非零。 |
+| 根因结论 | 已有 `build/CMakeCache.txt` 明确记录 Visual Studio 17 2022；CMake 不允许在同一二进制目录切换到 Ninja。使用全新目录后配置立即通过，排除了源码和工具链故障。 |
+| 最终方案 | 本轮基线与回归统一使用 `%TEMP%/ai-outdoor-stage2-baseline/<module>` 独立构建树，不删除或覆盖用户已有 build cache；每个配置、构建、CTest 阶段均检查退出码。 |
+| 验证结果 | MP157 在独立 Ninja Release 构建树完成 47 个构建步骤，CTest 10/10 通过；Compass Calibrator CTest 3/3、Frame Decoder 构建和 F407 ARM 构建也完成。 |
+| 剩余风险 | 本问题已闭环。MSVC 提示临时目录不适合长期增量构建，本轮只用于一次性隔离验证；长期本地开发仍应使用按生成器区分的持久构建目录。 |
+| 证据与关联资料 | 本轮 CMake 原始错误输出；Stage 2.1 开发日志待完成后关联。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 复用模块既有 `build` 并指定 Ninja | 希望避免重复生成目录 | CMake 报告既有生成器为 Visual Studio 17 2022 | 不复用 cache，改用独立临时构建树 | A |
+| 2 | 在系统临时目录建立独立 Ninja Release 构建树 | 新目录不携带既有生成器状态 | MP157 配置、构建和 CTest 10/10 通过 | 根因与隔离方案确认，问题关闭 | A |
+
+面试讲述要点：构建目录包含生成器状态，不能把它当作可在 MSVC 与 Ninja 之间共享的普通输出目录；基线验证应使用明确隔离的构建树，并在配置失败后停止后续步骤。
+
+### TRB-20260721-034: Release 禁用 assert 导致测试副作用丢失与假绿
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，F407 主机 Release 独立基线 |
+| 模块与版本 | `f407/sensor-hub/tests`；GCC 16.1；CMake Release；当前分支 `agent/stage2-unix-status-ipc` |
+| 环境与前提 | Windows PowerShell；全新 Ninja 构建树；`CMAKE_BUILD_TYPE=Release`。未执行任何板端或串口交互。 |
+| 问题现象 | 编译输出报告大量断言相关变量/函数未使用；CTest 6/7 中 `uart_tx_queue_tests` 以 `NUMERICAL` 异常失败，其他测试虽返回通过但存在断言被删除的假绿风险。 |
+| 影响范围 | F407 PC 单元测试无法在 Release 下提供可信证据；如果初始化或被测调用写在 `assert(...)` 内，其副作用会随 `NDEBUG` 一起消失。固件生产源码尚无证据表明受影响。 |
+| 复现步骤 | 在全新目录执行 `cmake -S f407/sensor-hub -B <dir> -G Ninja -DCMAKE_BUILD_TYPE=Release`、构建并运行 CTest。 |
+| 预期结果 | 7/7 测试在 Release 下执行全部检查并通过，不依赖 Debug 专用断言。 |
+| 实际结果 | `uart_tx_queue_tests` 数值异常；编译器对其余测试给出大量未使用警告，证明检查主体已被编译删除。 |
+| 根因结论 | 7 个 F407 主机测试文件全部直接使用标准 `assert`，多个初始化、enqueue、FIFO 解析和 provider 调用位于断言表达式内。Release 定义 `NDEBUG` 后删除表达式，UART 队列保持零容量并在后续操作中触发数值异常；其余用例的未使用告警证明检查未执行。 |
+| 最终方案 | 新增仅供测试使用的 `test_check.h`，以单次求值、打印表达式/文件/行号并 `EXIT_FAILURE` 退出的始终生效检查替代标准断言语义；7 个测试源统一引用该头文件，生产固件源码和 ARM 编译选项不变。 |
+| 验证结果 | 全新 GCC 16.1 Ninja Release 重新构建时原未使用告警消失，CTest 7/7 通过；MSVC 19.44 Debug CTest 7/7 通过；`scripts/build_f407.ps1` ARM 固件构建通过。 |
+| 剩余风险 | 本问题已闭环。测试仍使用历史 `assert(...)` 拼写，但在测试源内由专用头明确重绑定为 always-on check；后续新增测试应继续包含该头或直接使用 `TEST_CHECK`。 |
+| 证据与关联资料 | Release 编译告警和 CTest `uart_tx_queue_tests (NUMERICAL)` 原始输出；开发日志待闭环后关联。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 用全新 Release 构建树运行 F407 CTest | 排除旧 cache 和 Debug 配置干扰 | 大量未使用告警，UART 队列测试数值异常 | 检查测试中的 `assert` 与断言内副作用 | A |
+| 2 | 扫描全部 F407 测试并引入 always-on test check | 7 个文件均使用标准 `assert`，且存在断言内副作用 | Release 无原告警且 7/7；MSVC Debug 7/7；ARM 构建通过 | 根因、修复和跨配置验证闭环 | A |
+
+面试讲述要点：单元测试显示绿色不代表检查真实执行；跨 Debug/Release 验证、编译告警和失败类型可以共同揭示 `NDEBUG` 删除断言及副作用的问题。
+
+### TRB-20260721-035: PowerShell 将交叉编译器变量作为字面量传给 CMake
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.1 首次 MP157 ARM 交叉配置 |
+| 模块与版本 | `mp157/outdoor-core-service`；CMake 4.3.3；GNU ARM Linux 9.2.1；当前分支 `agent/stage2-unix-status-ipc` |
+| 环境与前提 | Windows PowerShell；编译器文件已确认存在；使用全新临时 ARM 构建树。未执行串口、部署或板端命令。 |
+| 问题现象 | CMake 报告 `CMAKE_CXX_COMPILER: $compiler is not a full path and was not found in the PATH`，配置阶段直接失败。 |
+| 影响范围 | 首轮 MP157 ARM 编译未执行；尚不能用该轮判断 POSIX Unix socket 源码是否能被 9.2.1 工具链编译。源码和板端状态未改变。 |
+| 复现步骤 | 在 PowerShell 原生命令中以内联 `-DCMAKE_CXX_COMPILER=$compiler` 形式传递变量。 |
+| 预期结果 | CMake 收到交叉编译器绝对路径并生成 Linux/ARM Ninja 构建树。 |
+| 实际结果 | CMake 收到字面量 `$compiler`。 |
+| 根因结论 | PowerShell 对该原生命令参数的拼接没有形成预期的单个 `-Dkey=value` 字符串；与 TRB-20260720-032 的参数边界问题同类。显式参数数组复验确认不是源码或编译器路径缺失。 |
+| 最终方案 | 构造包含完整 `-DCMAKE_CXX_COMPILER=<absolute-path>` 的参数数组，并在配置成功后才进入构建。 |
+| 验证结果 | CMake 正确识别 GNU ARM Linux 9.2.1；修正测试线程链接后，`outdoor_core_runtime`、`outdoor_status_query` 和全部测试目标完成 ARM 全量编译链接。 |
+| 剩余风险 | 本问题已关闭；长期可用独立 toolchain file 进一步减少命令行参数边界风险。真实 Unix socket 运行验收属于 Stage 2.1 板端待办，不影响本配置问题闭环。 |
+| 证据与关联资料 | 本轮 CMake 原始错误；关联 TRB-20260720-032。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 以内联 PowerShell 变量传递交叉编译器 | 编译器绝对路径已存在 | CMake 收到字面量 `$compiler` 并拒绝配置 | 改用显式参数数组 | A |
+| 2 | 用显式参数数组传递完整 `-Dkey=value` | 避免原生命令参数二次拆分 | CMake 识别 GNU 9.2.1 并生成 Linux/ARM Ninja 构建树 | 配置调用问题关闭 | A |
+
+面试讲述要点：交叉编译失败需要先区分“源码编不过”和“配置根本没收到工具路径”；检查 CMake 回显的实际值并在配置失败后停止，可以避免把调用错误误判为代码缺陷。
+
+### TRB-20260721-036: ARM 测试目标未显式链接 pthread
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.1 MP157 ARM 首次有效编译 |
+| 模块与版本 | `unix_status_service_tests`；GNU ARM Linux 9.2.1；CMake/Ninja Release |
+| 环境与前提 | 使用显式参数数组完成 Linux/ARM 交叉配置；`outdoor_core_runtime`、`outdoor_status_query` 和 Unix socket 源码均已编译链接。未运行 ARM 测试，也未部署到板端。 |
+| 问题现象 | 链接 `unix_status_service_tests` 时报告两处 `undefined reference to pthread_create`，Ninja 在 53/53 停止。 |
+| 影响范围 | ARM 全目标构建返回失败；Runtime 与查询客户端产物已生成，但本轮不能记为完整交叉构建通过。 |
+| 复现步骤 | 交叉构建包含 `std::thread` 的 Unix status service 集成测试，测试目标只链接 `outdoor_core`。 |
+| 预期结果 | CMake 为测试目标声明并传递平台线程库，所有目标链接完成。 |
+| 实际结果 | 测试对象引用 `pthread_create`，链接命令没有 `-pthread` 或 pthread 库。 |
+| 根因结论 | 测试通过后台线程驱动非阻塞服务，但 CMake 没有用 `find_package(Threads)` / `Threads::Threads` 表达线程依赖；Windows 原生工具链隐式满足，Linux ARM 链接器则正确拒绝。 |
+| 最终方案 | 使用 `find_package(Threads REQUIRED)`，只为 `unix_status_service_tests` 显式链接 `Threads::Threads`，不把测试专用线程依赖扩散到 Runtime 生产目标。 |
+| 验证结果 | Windows GCC Release CTest 11/11 通过；GNU ARM Linux 9.2.1 的 Runtime、查询客户端和全部测试目标完成编译链接，原 `pthread_create` 未定义引用消失。 |
+| 剩余风险 | 本链接问题已关闭。ARM 测试二进制在当前 Windows 主机只能完成交叉链接；实际 Unix socket 生命周期仍需 Linux 主机或 MP157 后续验收。 |
+| 证据与关联资料 | ARM 链接器 `undefined reference to pthread_create` 原始输出。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 用修正后的参数数组执行 ARM 全目标构建 | 验证 POSIX 实现与旧工具链兼容 | 生产目标链接成功，仅线程化测试缺少 pthread | 在测试目标声明 Threads 依赖 | A |
+| 2 | 仅给集成测试链接 `Threads::Threads` 后重建 | 依赖只属于测试驱动线程 | Windows 11/11 CTest 与 ARM 全目标链接通过 | 根因、修复和回归闭环 | A |
+
+面试讲述要点：跨平台测试依赖也必须进入构建模型；Windows 能链接不代表 Linux 目标会自动补 pthread，应把依赖精确放在使用线程的测试目标上，避免污染生产二进制。
 
 ## 新问题记录模板
 

@@ -23,6 +23,8 @@ struct AppConfig {
     std::string mcuCommand = "none";
     std::uint32_t runtimeRunSeconds = 0;
     std::string statusOutputPath = "runtime/runtime_status.json";
+    bool statusSocketEnabled = false;
+    std::string statusSocketPath = "runtime/outdoor_core.sock";
     bool storageEnabled = false;
     std::string storageRootPath = "/mnt/sdcard/outdoor-agent";
     std::string storageStatusOutputPath = "status/runtime_status.json";

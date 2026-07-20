@@ -1,7 +1,7 @@
 #include "protocol/crc16_modbus_c.h"
 #include "protocol/mcu_frame_builder_c.h"
 
-#include <cassert>
+#include "test_check.h"
 #include <cstddef>
 #include <cstdint>
 #include <iostream>

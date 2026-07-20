@@ -1,5 +1,71 @@
 # Dev Log
 
+## 2026-07-21 - Stage 2.1 Unix Runtime Status Query
+
+### 本次完成
+
+- 保留原子 `runtime_status.json` 文件发布，并从 `StatusPublisher` 提取公共序列化入口，保证文件与查询响应使用同一 JSON schema。
+- 新增默认关闭的 `UnixStatusService`：以非阻塞 `AF_UNIX/SOCK_STREAM` 接入协作式 Runtime，支持 `GET_STATUS`/`PING`，限制 4 个客户端、64 字节请求和 5 秒空闲连接。
+- socket 固定权限为 0660；启动拒绝普通文件和活跃 socket，只清理确认失活的 stale socket，退出时关闭连接并删除自身路径。
+- 新增 `outdoor_status_query` 配套客户端、配置/CLI 开关和部署文件清单，不引入第三方依赖。
+- 新增跨平台协议/错误边界测试和 POSIX 集成测试源码；使用 `Threads::Threads` 精确声明测试专用线程依赖。
+- 新增 Stage 2 计划和 ADR-0025；TRB-20260721-035/036 记录了 ARM 配置参数与 pthread 链接问题及修复证据。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/ipc/`、`src/ipc/`、`src/status_query_main.cpp`
+- `mp157/outdoor-core-service/CMakeLists.txt`、`src/main.cpp`、配置、状态模型和测试
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`、`scripts/deploy_mp157_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`、`docs/stage1_plan.md`、`docs/stage2_plan.md`
+- `docs/adr/0006-evaluate-unix-domain-status-query.md`、`docs/adr/0025-use-unix-domain-socket-status-query.md`
+- `docs/troubleshooting_log.md`、`docs/changelog.md`、`docs/dev_log.md`
+
+### 验证结果
+
+- MP157 Windows GCC Release 构建与 CTest 11/11 通过；`verify_runtime.ps1` 通过。
+- GNU ARM Linux 9.2.1 全目标交叉构建通过：`outdoor_core_runtime` 273944 B、`outdoor_status_query` 18984 B，包含 POSIX Unix socket 源码和测试目标链接。
+- F407 GCC Release 与 MSVC Debug CTest 均为 7/7；F407 ARM 固件构建通过。
+- Compass Calibrator CTest 3/3 通过；Frame Decoder 构建通过；两份修改后的 PowerShell 脚本 parser errors 为 0。
+- 当前 Windows 环境没有 WSL 发行版、Docker/Podman 或 ARM 用户态模拟器，因此 POSIX 集成测试源码未在本机 Linux 用户态执行。
+- 未访问 COM3/COM9，未执行部署、烧录、复位、物理上下电或真实板端运行。
+
+### 后续 TODO
+
+- 继续 Stage 2.2 Runtime systemd 进程托管的软件设计、unit 和静态验证。
+- 后续统一在 MP157 验证 socket 权限、活动实例冲突、stale 恢复、连续查询与受控退出清理。
+- Stage 1 真实硬件、电气、室外、小时级和掉电验收维持未完成。
+
+## 2026-07-21 - F407 Host Test Checks Stay Active in Release
+
+### 本次完成
+
+- 在全新 GCC Release 构建树中复现 F407 主机测试的 `NDEBUG` 假绿：标准 `assert` 删除了其中的初始化和被测调用，`uart_tx_queue_tests` 最终触发数值异常。
+- 新增测试专用 `test_check.h`，提供 Debug/Release 都会执行、失败时打印表达式与源码位置并返回非零的轻量检查。
+- 将 7 个 F407 主机测试统一切换到 always-on 检查语义；生产固件源码和 ARM 编译选项不变。
+- 完整排查过程、失败基线和验证证据记录到 TRB-20260721-033/034。
+
+### 修改文件
+
+- `f407/sensor-hub/tests/test_check.h`
+- `f407/sensor-hub/tests/*_test.cpp`
+- `f407/sensor-hub/README.md`
+- `docs/troubleshooting_log.md`
+- `docs/dev_log.md`
+
+### 验证结果
+
+- MP157 GCC Release CTest 10/10 通过；Compass Calibrator CTest 3/3 通过；Frame Decoder 构建通过。
+- F407 GCC Release CTest 7/7 通过，原先由断言删除造成的未使用告警消失。
+- F407 MSVC Debug CTest 7/7 通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_f407.ps1` 通过。
+- 未执行烧录、串口抓取、板端运行、复位或物理上下电；本次变更只涉及主机测试基础设施。
+
+### 后续 TODO
+
+- Stage 2.1 实现 Unix domain socket Runtime 状态查询，保留现有 JSON 状态文件兼容。
+- 真实硬件与小时级验收继续按 Stage 1 未完成清单统一留待后续。
+
 ## 2026-07-21 - ICM42688-Only 100 kHz A/B and 400 kHz Rollback
 
 ### 本次完成

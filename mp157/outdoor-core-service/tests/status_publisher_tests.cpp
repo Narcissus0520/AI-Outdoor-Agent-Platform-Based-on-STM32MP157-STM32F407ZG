@@ -37,6 +37,8 @@ int main()
 
     outdoor::runtime::RuntimeStatus status;
     status.storageEnabled = true;
+    status.statusSocketEnabled = true;
+    status.statusSocketPath = "runtime/status.sock";
     status.storageLogRotationFailureCount = 3U;
     status.storageLogWriteFailureCount = 2U;
     status.storageLogLastError = "rotation failed for \"outdoor.log\"";
@@ -50,6 +52,12 @@ int main()
     expect(publisher.publish(status, error), "status publisher should write JSON: " + error);
 
     const std::string json = readText(output);
+    expect(json == outdoor::ipc::StatusPublisher::serialize(status),
+           "file publisher and in-memory serialization should be identical");
+    expect(json.find("\"status_socket_enabled\": true") != std::string::npos,
+           "status JSON should report the enabled Unix socket");
+    expect(json.find("\"status_socket_path\": \"runtime/status.sock\"") != std::string::npos,
+           "status JSON should report the Unix socket path");
     expect(json.find("\"log_rotation_failure_count\": 3") != std::string::npos,
            "status JSON should contain the non-zero rotation failure count");
     expect(json.find("\"log_write_failure_count\": 2") != std::string::npos,

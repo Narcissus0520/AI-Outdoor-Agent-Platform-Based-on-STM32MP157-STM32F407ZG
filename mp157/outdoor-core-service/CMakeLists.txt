@@ -15,6 +15,8 @@ set(OUTDOOR_CORE_SOURCES
     src/gnss/nmea_parser.cpp
     src/input/file_replay_input.cpp
     src/ipc/status_publisher.cpp
+    src/ipc/unix_status_client.cpp
+    src/ipc/unix_status_service.cpp
     src/log/logger.cpp
     src/mcu/imu_payload_parser.cpp
     src/mcu/mcu_command.cpp
@@ -57,6 +59,15 @@ add_executable(outdoor_core_runtime
 )
 
 target_link_libraries(outdoor_core_runtime
+    PRIVATE
+        outdoor_core
+)
+
+add_executable(outdoor_status_query
+    src/status_query_main.cpp
+)
+
+target_link_libraries(outdoor_status_query
     PRIVATE
         outdoor_core
 )
@@ -161,6 +172,20 @@ target_link_libraries(status_publisher_tests
 )
 
 add_test(NAME status_publisher_tests COMMAND status_publisher_tests)
+
+find_package(Threads REQUIRED)
+
+add_executable(unix_status_service_tests
+    tests/unix_status_service_tests.cpp
+)
+
+target_link_libraries(unix_status_service_tests
+    PRIVATE
+        outdoor_core
+        Threads::Threads
+)
+
+add_test(NAME unix_status_service_tests COMMAND unix_status_service_tests)
 
 add_executable(compass_estimator_tests
     tests/compass_estimator_tests.cpp

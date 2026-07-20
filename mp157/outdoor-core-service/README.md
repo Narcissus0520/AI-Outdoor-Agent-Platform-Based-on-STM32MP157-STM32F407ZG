@@ -1,6 +1,6 @@
 # Outdoor Core Service
 
-`outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力，并承载 Stage 1 Linux Runtime 侧 MCU 协议解析和 MP157 板载 ICM20608 读取服务。
+`outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力、Stage 1 MCU/Sensor Integration，以及 Stage 2.1 本地只读 Unix domain socket 状态查询。
 
 本模块不包含 STM32F407ZG 固件代码，不实现 HTTP API 或真实 AI Agent；当前提供 `outdoor-agent` 文本和 fbdev framebuffer 仪表盘 APP 原型。
 
@@ -14,6 +14,7 @@
 - MP157 UART5 GNSS/NMEA serial 输入路径，已验证 `/dev/ttySTM2`、38400 8N1
 - GNSS 基础定位状态输出
 - 文件型 Runtime 状态输出：`runtime/runtime_status.json`
+- 默认关闭的 Unix domain stream socket 状态查询：复用状态文件 JSON schema，提供 `GET_STATUS`/`PING` 最小协议和 `outdoor_status_query` 客户端
 - `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出、可选 `/dev/fb0` framebuffer 输出、主界面程序图标、轻量 fbdev/evdev APP launcher，以及板端 APP 配置/启动脚本
 - MCU mock frame 解析
 - `McuFrame` / `McuFrameParser` / `McuStatus`
@@ -50,7 +51,9 @@ outdoor-core-service/
 
 ```text
 /opt/outdoor-agent/
-├── bin/outdoor_core_runtime
+├── bin/
+│   ├── outdoor_core_runtime
+│   └── outdoor_status_query
 ├── config/runtime.conf
 └── scripts/
     ├── run_board_long_validation.sh
@@ -87,6 +90,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 cmake -S . -B build
 cmake --build build
 ```
+
+构建会生成 `outdoor_core_runtime` 和 `outdoor_status_query` 两个可执行文件；后者是无第三方依赖的本地 socket 查询客户端。
 
 也可以在仓库根目录执行：
 
@@ -234,6 +239,21 @@ MP157 -> F407 最小下行 ping 命令：
 
 F407 通过 UART4 RX 中断缓冲解析 `command_ping`，再通过 UART4 TX 返回 `command_ack`。2026-07-18 已在 MP157 COM9 上运行当前 ARM Runtime 完成验证：`mcu.command_ack_seen=true`、`mcu.command_ack_request_type=128`、`mcu.command_ack_status=0`、nonce `0x50494E47`；同次状态文件还确认 heartbeat、IMU、磁力计和气压计均已收到。
 
+### Unix 状态查询
+
+socket 默认关闭，避免改变现有 file/mock 有限服务运行的退出语义。Linux/MP157 上可按需启用：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf \
+  --status-socket --status-socket-path runtime/outdoor_core.sock \
+  --runtime-run-seconds 60
+./outdoor_status_query runtime/outdoor_core.sock
+```
+
+`GET_STATUS\n` 返回与状态文件完全相同的当前 JSON，`PING\n` 返回 `PONG\n`。服务使用非阻塞协作式轮询、0660 权限、最多 4 个客户端、64 字节请求和 5 秒空闲超时；启动不会覆盖普通文件或活跃 socket，只会清理确认失活的 stale socket。启用后 Runtime 包含常驻服务，需要 SIGINT/SIGTERM 或 `runtime_run_seconds` 停止。
+
+Windows 原生构建会明确报告 Unix socket 不受支持，便于覆盖错误边界。当前已完成 Windows 11/11 CTest、Runtime verifier 和 GNU ARM Linux 9.2.1 全目标交叉链接；真实 MP157 的 socket 权限、连续查询、冲突和退出清理仍待后续联调验收。
+
 ## 验证
 
 ```powershell
@@ -260,6 +280,9 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - fake character-device / fake-IIO 的 ICM20608 换算测试
 - MCU CRC16 错误拒绝
 - `runtime_status.json` 状态输出
+- 文件状态与内存序列化内容一致，且包含 `ipc` 节点
+- `GET_STATUS`、`PING`、未知命令、缺失 provider 和非 POSIX 失败边界
+- POSIX 测试源码覆盖 stale socket、活跃实例冲突、真实 client/server 查询和退出 unlink
 - storage 模式下的状态 JSON、文本 dashboard 和日志文件生成
 - history 模式下五类 CSV 的创建、数据追加和状态字段
 - History Recorder 去重、CSV 转义，以及日志轮转顺序和备份数量上限
@@ -289,6 +312,8 @@ mcu_serial_capture_seconds = 5
 mcu_command = none
 runtime_run_seconds = 0
 status_output_path = runtime/runtime_status.json
+status_socket_enabled = false
+status_socket_path = runtime/outdoor_core.sock
 storage_enabled = false
 storage_root_path = /run/media/mmcblk1p1/outdoor-agent
 storage_status_output_path = status/runtime_status.json
