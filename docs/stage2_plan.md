@@ -18,9 +18,13 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 
 ## Stage 2.2: Runtime Process Supervision
 
-- [ ] 设计 Outdoor Core Runtime 的 systemd unit、依赖顺序、运行目录和退出语义
-- [ ] 将 Runtime 进程托管与现有 ICM20608 驱动加载 unit、长测独占保护和部署脚本协调
-- [ ] 增加纯软件 unit 静态检查和失败重启策略测试
+- [x] 设计 Outdoor Core Runtime 的 systemd `Type=simple` unit、ICM20608 loader 依赖、`RuntimeDirectory`、SIGTERM 和退出语义
+- [x] 增加 headless live-source service config：状态文件/socket 写入 `/run/outdoor-agent`，默认不启用 framebuffer、SD storage 或 history
+- [x] 使用 60 秒 5 次启动上限、`Restart=on-failure` 和 2 秒间隔约束失败重启风暴
+- [x] 增加只读系统、kernel/control-group 保护、`AF_UNIX` 限制和两路串口/ICM20608 closed device allow-list
+- [x] 将 Runtime 进程托管与现有 ICM20608 驱动加载 unit、长测独占保护和部署脚本协调
+- [x] 部署默认只安装不 enable/start；增加显式 `-EnableRuntimeService`、`-StartRuntimeService` 状态变更开关
+- [x] 增加纯软件 unit/config 静态检查、四个不安全变体负向测试和 service config 无硬件 smoke
 - [ ] 在真实 MP157 上验证 enable/start/stop/restart、SIGTERM 受控退出和异常退出恢复
 
 ## Stage 2.3: Local Agent Boundary
@@ -31,7 +35,7 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 
 ## 当前验收边界
 
-- Stage 2.1 纯软件实现、主机测试和 ARM 交叉链接已完成。
+- Stage 2.1 和 Stage 2.2 纯软件实现已完成；两阶段真实 MP157 生命周期验收均保留未完成。
 - 当前 Windows 环境没有可用 WSL 发行版、Docker/Podman 或 ARM 用户态模拟器，因此 POSIX socket 集成测试源码未在本机 Linux 用户态执行。
 - 按当前任务约束，本轮没有通过 COM3/COM9 触发板端命令，也没有执行烧录、复位、物理上下电或真实硬件交互。
 - Stage 1 中 ICM42688 电气/波形、室外 GNSS fix、罗盘实采标定、SD/双串口/framebuffer 小时级和掉电验收继续保持未完成，不因 Stage 2 软件推进而改变。

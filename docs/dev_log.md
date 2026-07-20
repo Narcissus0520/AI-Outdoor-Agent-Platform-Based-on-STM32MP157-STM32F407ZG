@@ -1,5 +1,44 @@
 # Dev Log
 
+## 2026-07-21 - Stage 2.2 Runtime Process Supervision
+
+### 本次完成
+
+- 新增 `outdoor-agent-runtime.service`，以 systemd `Type=simple` 托管前台 Runtime，并依赖已验证的 ICM20608 loader unit。
+- 新增 headless live-source service config：GNSS/MCU 双串口和板载 ICM20608 常驻，JSON/socket 写入 `/run/outdoor-agent`，默认关闭 framebuffer、launcher、SD storage 与 history。
+- unit 使用 SIGTERM/15 秒停止超时、`Restart=on-failure`、2 秒间隔和 60 秒 5 次启动上限；加入只读系统、kernel/control-group 保护、`AF_UNIX` 和 closed device allow-list。
+- 部署脚本增加 Runtime unit/config，默认只安装不 enable/start；显式 `-EnableRuntimeService`、`-StartRuntimeService` 才改变板端 Runtime 状态。
+- 新增 supervision contract verifier 和负向自测，证明禁用重启、无限重启、开放设备策略和关闭 service socket 会被拒绝。
+- Runtime verifier 实际加载 service config，并用 file/mock/无硬件 CLI 覆盖完成 stopped 状态 smoke。
+- ADR-0026 记录 systemd 选型、root 过渡边界、长测独占和专用用户前置证据；TRB-20260721-037 闭环负向测试的 PowerShell stderr/退出码误判。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/deploy/systemd/outdoor-agent-runtime.service`
+- `mp157/outdoor-core-service/config/outdoor_agent_service.conf`
+- `mp157/outdoor-core-service/scripts/verify_runtime_supervision.ps1`
+- `mp157/outdoor-core-service/scripts/verify_runtime_supervision_tests.ps1`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `scripts/deploy_mp157_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`、`docs/stage2_plan.md`
+- `docs/adr/0026-use-systemd-runtime-supervision.md`
+- `docs/troubleshooting_log.md`、`docs/changelog.md`、`docs/dev_log.md`
+
+### 验证结果
+
+- Runtime supervision verifier 正向 contract 与四个负向 fixture 全部符合预期。
+- `verify_runtime.ps1` 通过，包含 service config 实际加载与无硬件 smoke。
+- MP157 Windows GCC Release CTest 11/11、GNU ARM Linux 9.2.1 全目标交叉构建通过；Runtime 273944 B、查询客户端 18984 B。
+- F407 GCC Release CTest 7/7 通过；四份相关 PowerShell 脚本 parser errors 为 0，`git diff --check` 通过。
+- 未执行 deploy script、COM3/COM9、systemd enable/start/stop/restart、复位或物理上下电。
+
+### 后续 TODO
+
+- 后续在 MP157 执行 `systemd-analyze verify` 和 enable/start/query/stop/restart/失败上限验收。
+- 用真实 device ownership/group/udev 证据评估专用用户，当前不猜测板端组名。
+- 进入 Stage 2.3，定义不夸大真实 AI 能力的 Local Agent mock 软件边界。
+
 ## 2026-07-21 - Stage 2.1 Unix Runtime Status Query
 
 ### 本次完成

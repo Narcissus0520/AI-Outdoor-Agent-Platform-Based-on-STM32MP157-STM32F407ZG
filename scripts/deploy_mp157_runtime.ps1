@@ -3,8 +3,11 @@ param(
     [string]$RuntimePath = "",
     [string]$StatusQueryPath = "",
     [string]$ConfigPath = "",
+    [string]$RuntimeServiceConfigPath = "",
     [string]$InstallRoot = "/opt/outdoor-agent",
-    [int]$BaudRate = 115200
+    [int]$BaudRate = 115200,
+    [switch]$EnableRuntimeService,
+    [switch]$StartRuntimeService
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +17,12 @@ if ($PortName -notmatch '^COM[0-9]+$') {
 }
 if ($InstallRoot -notmatch '^/[A-Za-z0-9._/-]+$' -or $InstallRoot.EndsWith('/')) {
     throw "InstallRoot must be an absolute Linux path without spaces or a trailing slash."
+}
+if ($InstallRoot -ne "/opt/outdoor-agent") {
+    throw "Stage 2 Runtime supervision currently requires InstallRoot=/opt/outdoor-agent."
+}
+if ($StartRuntimeService) {
+    $EnableRuntimeService = $true
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -26,9 +35,14 @@ if ([string]::IsNullOrWhiteSpace($StatusQueryPath)) {
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $repoRoot "mp157/outdoor-core-service/config/runtime.conf"
 }
+if ([string]::IsNullOrWhiteSpace($RuntimeServiceConfigPath)) {
+    $RuntimeServiceConfigPath = Join-Path $repoRoot "mp157/outdoor-core-service/config/outdoor_agent_service.conf"
+}
 
 $xmodemScript = Join-Path $PSScriptRoot "send_xmodem.ps1"
 $servicePath = Join-Path $repoRoot "mp157/outdoor-core-service/deploy/systemd/outdoor-agent-icm20608.service"
+$runtimeServicePath = Join-Path $repoRoot "mp157/outdoor-core-service/deploy/systemd/outdoor-agent-runtime.service"
+$supervisionVerifierPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/verify_runtime_supervision.ps1"
 $healthPreflightPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_board_health_preflight.sh"
 $healthMonitorPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/monitor_board_runtime_health.sh"
 $longTestPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/run_board_long_validation.sh"
@@ -44,6 +58,7 @@ $localFiles = @(
     @{ Local = $RuntimePath; Remote = "$InstallRoot/bin/outdoor_core_runtime"; Mode = "0755" },
     @{ Local = $StatusQueryPath; Remote = "$InstallRoot/bin/outdoor_status_query"; Mode = "0755" },
     @{ Local = $ConfigPath; Remote = "$InstallRoot/config/runtime.conf"; Mode = "0644" },
+    @{ Local = $RuntimeServiceConfigPath; Remote = "$InstallRoot/config/outdoor_agent_service.conf"; Mode = "0644" },
     @{ Local = $healthPreflightPath; Remote = "$InstallRoot/scripts/run_board_health_preflight.sh"; Mode = "0755" },
     @{ Local = $healthMonitorPath; Remote = "$InstallRoot/scripts/monitor_board_runtime_health.sh"; Mode = "0755" },
     @{ Local = $longTestPath; Remote = "$InstallRoot/scripts/run_board_long_validation.sh"; Mode = "0755" },
@@ -54,8 +69,11 @@ $localFiles = @(
     @{ Local = $mcuMockFramesPath; Remote = "$InstallRoot/data/mcu_mock_frames.txt"; Mode = "0644" },
     @{ Local = $mcuValidMockFramesPath; Remote = "$InstallRoot/data/mcu_mock_frames_valid.txt"; Mode = "0644" },
     @{ Local = $mcuCompassMockFramesPath; Remote = "$InstallRoot/data/mcu_mock_frames_compass.txt"; Mode = "0644" },
-    @{ Local = $servicePath; Remote = "/etc/systemd/system/outdoor-agent-icm20608.service"; Mode = "0644" }
+    @{ Local = $servicePath; Remote = "/etc/systemd/system/outdoor-agent-icm20608.service"; Mode = "0644" },
+    @{ Local = $runtimeServicePath; Remote = "/etc/systemd/system/outdoor-agent-runtime.service"; Mode = "0644" }
 )
+
+& $supervisionVerifierPath -UnitPath $runtimeServicePath -ConfigPath $RuntimeServiceConfigPath
 
 foreach ($entry in $localFiles) {
     $entry.Local = (Resolve-Path -LiteralPath $entry.Local).Path
@@ -138,15 +156,26 @@ foreach ($entry in $localFiles) {
 $modeCommands = $localFiles | ForEach-Object { "chmod $($_.Mode) $($_.Remote)" }
 [void](Invoke-BoardCommand -Command ($modeCommands -join '; '))
 
-Write-Host "Installing and starting the ordered ICM20608 systemd unit."
-$serviceCommand = @(
+Write-Host "Installing the Runtime unit and starting the ordered ICM20608 loader unit."
+$serviceCommands = @(
     'rm -f /etc/modules-load.d/outdoor-agent.conf',
     'systemctl daemon-reload',
+    'systemd-analyze verify /etc/systemd/system/outdoor-agent-runtime.service',
     'systemctl enable outdoor-agent-icm20608.service',
     'systemctl restart outdoor-agent-icm20608.service',
     'test -c /dev/icm20608'
-) -join '; '
-[void](Invoke-BoardCommand -Command $serviceCommand -TimeoutSeconds 30)
+)
+if ($EnableRuntimeService) {
+    $serviceCommands += 'systemctl enable outdoor-agent-runtime.service'
+}
+if ($StartRuntimeService) {
+    $serviceCommands += @(
+        'systemctl reset-failed outdoor-agent-runtime.service',
+        'systemctl restart outdoor-agent-runtime.service',
+        'i=0; while [ "$i" -lt 10 ]; do if /opt/outdoor-agent/bin/outdoor_status_query /run/outdoor-agent/outdoor_core.sock >/dev/null 2>&1; then break; fi; i=$((i + 1)); sleep 1; done; test "$i" -lt 10'
+    )
+}
+[void](Invoke-BoardCommand -Command ($serviceCommands -join '; ') -TimeoutSeconds 45)
 
 $remotePaths = ($localFiles | ForEach-Object { $_.Remote }) -join ' '
 $hashResult = Invoke-BoardCommand -Command "sha256sum $remotePaths" -TimeoutSeconds 20
@@ -167,7 +196,7 @@ foreach ($entry in $localFiles) {
     Write-Host "sha256=PASS path=$($entry.Remote) hash=$($entry.Hash)"
 }
 
-$syntaxCommand = @(
+$syntaxCommands = @(
     "sh -n $InstallRoot/scripts/run_board_health_preflight.sh",
     "sh -n $InstallRoot/scripts/monitor_board_runtime_health.sh",
     "sh -n $InstallRoot/scripts/run_board_long_validation.sh",
@@ -176,8 +205,19 @@ $syntaxCommand = @(
     "sh -n $InstallRoot/scripts/run_board_gnss_fix_validation.sh",
     'systemctl is-active --quiet outdoor-agent-icm20608.service',
     'systemctl is-enabled --quiet outdoor-agent-icm20608.service',
+    'test "$(systemctl show -p LoadState outdoor-agent-runtime.service)" = "LoadState=loaded"',
     'test -c /dev/icm20608'
-) -join '; '
-[void](Invoke-BoardCommand -Command $syntaxCommand -TimeoutSeconds 20)
+)
+if ($EnableRuntimeService) {
+    $syntaxCommands += 'systemctl is-enabled --quiet outdoor-agent-runtime.service'
+}
+if ($StartRuntimeService) {
+    $syntaxCommands += @(
+        'systemctl is-active --quiet outdoor-agent-runtime.service',
+        'test -S /run/outdoor-agent/outdoor_core.sock',
+        '/opt/outdoor-agent/bin/outdoor_status_query /run/outdoor-agent/outdoor_core.sock >/dev/null'
+    )
+}
+[void](Invoke-BoardCommand -Command ($syntaxCommands -join '; ') -TimeoutSeconds 30)
 
-Write-Host "deployment=PASSED root=$InstallRoot port=$PortName"
+Write-Host "deployment=PASSED root=$InstallRoot port=$PortName runtime_enabled=$([bool]$EnableRuntimeService) runtime_started=$([bool]$StartRuntimeService)"

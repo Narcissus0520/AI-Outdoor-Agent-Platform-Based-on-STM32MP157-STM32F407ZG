@@ -88,5 +88,5 @@ Stage 0.5 选择原子替换的 JSON 状态文件作为最小 IPC，Stage 1 的 
 ## 后续 TODO
 
 - 在 MP157 上使用专用运行目录启用 socket，执行 stale/active/permission/连续查询/退出清理验收。
-- Stage 2.2 设计 systemd Runtime unit 时明确运行用户、组和 socket 目录所有权。
+- Stage 2.2 已用 systemd `RuntimeDirectory` 固定 socket 目录，并以 root + device allow-list 作为待板端权限验收的过渡方案；详见 ADR-0026。
 - 若后续增加写命令，必须新增独立协议版本、权限模型、幂等与审计设计，不能复用只读 `GET_STATUS` 直接扩展。

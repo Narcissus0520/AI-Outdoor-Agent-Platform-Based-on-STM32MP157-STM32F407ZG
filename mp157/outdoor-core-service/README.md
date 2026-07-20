@@ -1,6 +1,6 @@
 # Outdoor Core Service
 
-`outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力、Stage 1 MCU/Sensor Integration，以及 Stage 2.1 本地只读 Unix domain socket 状态查询。
+`outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力、Stage 1 MCU/Sensor Integration，以及 Stage 2 本地只读 IPC 与 systemd 进程托管。
 
 本模块不包含 STM32F407ZG 固件代码，不实现 HTTP API 或真实 AI Agent；当前提供 `outdoor-agent` 文本和 fbdev framebuffer 仪表盘 APP 原型。
 
@@ -15,6 +15,7 @@
 - GNSS 基础定位状态输出
 - 文件型 Runtime 状态输出：`runtime/runtime_status.json`
 - 默认关闭的 Unix domain stream socket 状态查询：复用状态文件 JSON schema，提供 `GET_STATUS`/`PING` 最小协议和 `outdoor_status_query` 客户端
+- 默认只安装不启动的 `outdoor-agent-runtime.service`，包含 ICM20608 loader 依赖、SIGTERM、失败重启上限、运行目录、沙箱和设备白名单
 - `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出、可选 `/dev/fb0` framebuffer 输出、主界面程序图标、轻量 fbdev/evdev APP launcher，以及板端 APP 配置/启动脚本
 - MCU mock frame 解析
 - `McuFrame` / `McuFrameParser` / `McuStatus`
@@ -54,7 +55,9 @@ outdoor-core-service/
 ├── bin/
 │   ├── outdoor_core_runtime
 │   └── outdoor_status_query
-├── config/runtime.conf
+├── config/
+│   ├── runtime.conf
+│   └── outdoor_agent_service.conf
 └── scripts/
     ├── run_board_long_validation.sh
     ├── run_board_health_preflight.sh
@@ -81,6 +84,34 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File scripts/deploy_mp157_runtime.ps1 `
   -PortName COM9
 ```
+
+部署会上传 Runtime、查询客户端、普通验证配置、headless systemd 配置和两个 unit，并运行本地主机 supervision verifier。默认仅安装 Runtime unit，不 enable、不 start；ICM20608 loader 保持既有安装/启动行为。后续明确进入板端联调时，可附加：
+
+```powershell
+-EnableRuntimeService -StartRuntimeService
+```
+
+`-StartRuntimeService` 会隐式 enable，并在 10 秒有界窗口内用 `outdoor_status_query` 检查 socket。正式小时长测前必须停止 `outdoor-agent-runtime.service`；现有预检/长测脚本也会拒绝竞争的 `outdoor_core_runtime` 进程。
+
+### systemd Runtime 托管
+
+`deploy/systemd/outdoor-agent-runtime.service` 使用：
+
+- `Type=simple`，直接监管前台 Runtime，不使用 PID 文件或二次 fork
+- `Requires/After=outdoor-agent-icm20608.service`
+- `RuntimeDirectory=outdoor-agent`，0750 的 `/run/outdoor-agent`
+- `Restart=on-failure`、2 秒间隔、60 秒内最多 5 次启动
+- SIGTERM 与 15 秒停止超时
+- `ProtectSystem=strict`、`NoNewPrivileges`、`AF_UNIX` 限制和 closed device allow-list
+
+配套 `config/outdoor_agent_service.conf` 持续读取 `/dev/ttySTM2`、`/dev/ttySTM1` 和 `/dev/icm20608`，将 JSON/socket 写入 `/run/outdoor-agent`，默认关闭 framebuffer、launcher、SD storage 与 history。当前明确使用 root，因为目标设备节点的 group/udev 权限尚未完成真实验收；unit 沙箱只允许两路串口和 ICM20608。主机静态验证命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\verify_runtime_supervision_tests.ps1
+```
+
+本轮只完成软件和静态/无硬件 smoke，未在 MP157 执行 `systemd-analyze verify`、enable、start、stop 或 restart。
 
 ## 编译
 
@@ -283,6 +314,8 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - 文件状态与内存序列化内容一致，且包含 `ipc` 节点
 - `GET_STATUS`、`PING`、未知命令、缺失 provider 和非 POSIX 失败边界
 - POSIX 测试源码覆盖 stale socket、活跃实例冲突、真实 client/server 查询和退出 unlink
+- systemd unit/config 正向静态检查，以及 restart disabled、unbounded restart、开放设备策略、socket disabled 四个负向 fixture
+- `outdoor_agent_service.conf` 经 Runtime 实际加载，并在 CLI 覆盖为 file/mock、关闭硬件后完成 stopped 状态 smoke
 - storage 模式下的状态 JSON、文本 dashboard 和日志文件生成
 - history 模式下五类 CSV 的创建、数据追加和状态字段
 - History Recorder 去重、CSV 转义，以及日志轮转顺序和备份数量上限
