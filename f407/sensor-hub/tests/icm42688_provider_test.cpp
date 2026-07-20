@@ -4,7 +4,7 @@
 #include "sensors/icm42688_provider_c.h"
 
 #include <array>
-#include <cassert>
+#include "test_check.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>

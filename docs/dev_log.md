@@ -1,5 +1,35 @@
 # Dev Log
 
+## 2026-07-21 - F407 Host Test Checks Stay Active in Release
+
+### 本次完成
+
+- 在全新 GCC Release 构建树中复现 F407 主机测试的 `NDEBUG` 假绿：标准 `assert` 删除了其中的初始化和被测调用，`uart_tx_queue_tests` 最终触发数值异常。
+- 新增测试专用 `test_check.h`，提供 Debug/Release 都会执行、失败时打印表达式与源码位置并返回非零的轻量检查。
+- 将 7 个 F407 主机测试统一切换到 always-on 检查语义；生产固件源码和 ARM 编译选项不变。
+- 完整排查过程、失败基线和验证证据记录到 TRB-20260721-033/034。
+
+### 修改文件
+
+- `f407/sensor-hub/tests/test_check.h`
+- `f407/sensor-hub/tests/*_test.cpp`
+- `f407/sensor-hub/README.md`
+- `docs/troubleshooting_log.md`
+- `docs/dev_log.md`
+
+### 验证结果
+
+- MP157 GCC Release CTest 10/10 通过；Compass Calibrator CTest 3/3 通过；Frame Decoder 构建通过。
+- F407 GCC Release CTest 7/7 通过，原先由断言删除造成的未使用告警消失。
+- F407 MSVC Debug CTest 7/7 通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_f407.ps1` 通过。
+- 未执行烧录、串口抓取、板端运行、复位或物理上下电；本次变更只涉及主机测试基础设施。
+
+### 后续 TODO
+
+- Stage 2.1 实现 Unix domain socket Runtime 状态查询，保留现有 JSON 状态文件兼容。
+- 真实硬件与小时级验收继续按 Stage 1 未完成清单统一留待后续。
+
 ## 2026-07-21 - ICM42688-Only 100 kHz A/B and 400 kHz Rollback
 
 ### 本次完成

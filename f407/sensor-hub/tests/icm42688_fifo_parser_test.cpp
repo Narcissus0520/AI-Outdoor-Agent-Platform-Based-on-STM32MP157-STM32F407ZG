@@ -3,7 +3,7 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
+#include "test_check.h"
 #include <cstdint>
 #include <iostream>
 

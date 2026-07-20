@@ -53,6 +53,8 @@ cmake --build f407/sensor-hub/build
 ctest --test-dir f407/sensor-hub/build -C Debug --output-on-failure
 ```
 
+主机测试使用 `tests/test_check.h` 提供的始终生效检查，Debug 和 Release 都会执行被测表达式，不依赖会被 `NDEBUG` 删除的标准断言。当前 GCC Release 与 MSVC Debug 均为 CTest 7/7 通过。
+
 真实固件可在 Windows 下从仓库根目录构建：
 
 ```powershell

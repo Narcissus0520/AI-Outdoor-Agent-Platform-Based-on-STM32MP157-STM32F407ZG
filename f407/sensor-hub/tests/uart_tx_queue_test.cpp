@@ -1,7 +1,7 @@
 #include "bsp/uart_tx_queue_c.h"
 
 #include <array>
-#include <cassert>
+#include "test_check.h"
 #include <cstdint>
 #include <iostream>
 

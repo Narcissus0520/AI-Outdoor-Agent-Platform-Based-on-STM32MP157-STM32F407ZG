@@ -2,7 +2,7 @@
 #include "protocol/mcu_protocol.h"
 #include "sensors/mock_imu_provider.h"
 
-#include <cassert>
+#include "test_check.h"
 #include <cstdint>
 #include <vector>
 

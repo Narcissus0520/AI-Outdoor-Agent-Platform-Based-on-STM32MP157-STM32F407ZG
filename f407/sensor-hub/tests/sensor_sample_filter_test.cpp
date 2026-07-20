@@ -1,6 +1,6 @@
 #include "sensors/sensor_sample_filter_c.h"
 
-#include <cassert>
+#include "test_check.h"
 #include <iostream>
 
 namespace {
