@@ -29,13 +29,19 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 
 ## Stage 2.3: Local Agent Boundary
 
-- [ ] 定义 AI Terminal 本地请求/响应边界，不把未集成的推理能力写成已完成
-- [ ] 先实现可替换的 mock agent service 和资源上限，再评估具体模型/runtime 依赖
-- [ ] 记录第三方依赖、交叉编译、内存/CPU/存储成本和离线部署取舍
+- [x] 定义 schema version 1 的 `AgentRequest`/`AgentResponse`、稳定 state/error code 和 JSON 输出
+- [x] 实现可替换 `IAgentBackend`、同步单请求 `LocalAgentService` 和明确不执行推理的 `MockAgentBackend`
+- [x] 限制 request ID 64 B、prompt 512 B、Runtime context 64 KiB、backend message 2 KiB 和 error 256 B
+- [x] 增加 `outdoor_agent_terminal`，支持 JSON/text；仅在显式 `--status-socket` 时读取只读 Runtime context
+- [x] 覆盖合法/拒绝/backend 失败与异常/输出超限/JSON 转义，以及 CLI help/mock smoke；MP157 CTest 14/14
+- [x] GNU ARM Linux 9.2.1 全目标交叉构建通过，并将 Agent terminal 纳入部署清单
+- [x] ADR-0027 记录本地/远程/接口优先方案比较，以及第三方依赖、交叉编译、内存/CPU/存储、离线与隔离门槛
+
+真实模型 backend、语音/触摸对话、历史记忆和任务执行不属于已完成 Stage 2.3；没有形成依赖选型与板端资源证据前继续标为 planned。
 
 ## 当前验收边界
 
-- Stage 2.1 和 Stage 2.2 纯软件实现已完成；两阶段真实 MP157 生命周期验收均保留未完成。
+- Stage 2.1、Stage 2.2 和 Stage 2.3 纯软件实现已完成；三阶段真实 MP157 集成验收均保留未完成。
 - 当前 Windows 环境没有可用 WSL 发行版、Docker/Podman 或 ARM 用户态模拟器，因此 POSIX socket 集成测试源码未在本机 Linux 用户态执行。
 - 按当前任务约束，本轮没有通过 COM3/COM9 触发板端命令，也没有执行烧录、复位、物理上下电或真实硬件交互。
 - Stage 1 中 ICM42688 电气/波形、室外 GNSS fix、罗盘实采标定、SD/双串口/framebuffer 小时级和掉电验收继续保持未完成，不因 Stage 2 软件推进而改变。

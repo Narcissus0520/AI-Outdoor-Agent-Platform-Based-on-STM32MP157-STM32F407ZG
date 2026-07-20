@@ -16,8 +16,6 @@ namespace {
 
 #if defined(__linux__) || defined(__unix__)
 
-constexpr std::size_t kMaximumResponseBytes = 1024U * 1024U;
-
 std::string systemError(const std::string& operation, int errorNumber)
 {
     return operation + ": " + std::strerror(errorNumber);
@@ -60,7 +58,8 @@ bool UnixStatusClient::supported()
 bool UnixStatusClient::query(const std::string& socketPath,
                              std::string& response,
                              std::string& error,
-                             std::uint32_t timeoutMs)
+                             std::uint32_t timeoutMs,
+                             std::size_t maximumResponseBytes)
 {
     response.clear();
     error.clear();
@@ -69,6 +68,10 @@ bool UnixStatusClient::query(const std::string& socketPath,
     sockaddr_un address {};
     if (socketPath.empty()) {
         error = "status socket path must not be empty";
+        return false;
+    }
+    if (maximumResponseBytes == 0U) {
+        error = "status response limit must be greater than zero";
         return false;
     }
     if (socketPath.size() >= sizeof(address.sun_path)) {
@@ -133,8 +136,8 @@ bool UnixStatusClient::query(const std::string& socketPath,
             return false;
         }
         response.append(buffer, static_cast<std::size_t>(received));
-        if (response.size() > kMaximumResponseBytes) {
-            error = "status response exceeds 1 MiB limit";
+        if (response.size() > maximumResponseBytes) {
+            error = "status response exceeds configured limit";
             closeSocket();
             return false;
         }
@@ -153,6 +156,7 @@ bool UnixStatusClient::query(const std::string& socketPath,
 #else
     (void)socketPath;
     (void)timeoutMs;
+    (void)maximumResponseBytes;
     error = "Unix domain sockets are not supported on this platform";
     return false;
 #endif
