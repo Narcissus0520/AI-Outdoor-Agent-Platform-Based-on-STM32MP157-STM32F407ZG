@@ -1,8 +1,10 @@
 $ErrorActionPreference = "Stop"
 
 $serviceRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+& (Join-Path $PSScriptRoot "verify_runtime_supervision_tests.ps1")
 $output = Join-Path $serviceRoot "outdoor_core_runtime_verify.exe"
 $statusOutput = Join-Path $serviceRoot "runtime\runtime_status_verify.json"
+$serviceConfigStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_service_config_verify.json"
 $edgeStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_edge_verify.json"
 $continuousStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_continuous_verify.json"
 $compassStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_compass_verify.json"
@@ -167,6 +169,30 @@ try {
 
     if ($statusText -notmatch '"gyro_y_dps": -2\.194') {
         throw "runtime status output did not report parsed IMU gyro"
+    }
+
+    $serviceConfigOutput = & $output `
+        --config "config\outdoor_agent_service.conf" `
+        --gnss-input-mode file `
+        --input "data\nmea_sample.txt" `
+        --mcu-input-mode mock_file `
+        --mcu-mock-input "data\mcu_mock_frames.txt" `
+        --no-board-imu `
+        --no-status-socket `
+        --no-dashboard `
+        --status-output $serviceConfigStatusOutput 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "systemd Runtime service config smoke execution failed`n$($serviceConfigOutput -join "`n")"
+    }
+    if (!(Test-Path $serviceConfigStatusOutput)) {
+        throw "systemd Runtime service config smoke did not publish status"
+    }
+    $serviceConfigStatusText = Get-Content $serviceConfigStatusOutput -Raw
+    if ($serviceConfigStatusText -notmatch '"state": "stopped"') {
+        throw "systemd Runtime service config smoke did not stop cleanly"
+    }
+    if ($serviceConfigStatusText -notmatch '"status_socket_enabled": false') {
+        throw "systemd Runtime service config smoke did not apply the no-socket test override"
     }
 
     if ($statusText -notmatch '"accel_z_g": 1\.001') {
@@ -407,6 +433,7 @@ try {
     Start-Sleep -Milliseconds 300
     Remove-TemporaryFile $output
     Remove-TemporaryFile $statusOutput
+    Remove-TemporaryFile $serviceConfigStatusOutput
     Remove-TemporaryFile $edgeStatusOutput
     Remove-TemporaryFile $continuousStatusOutput
     Remove-TemporaryFile $compassStatusOutput

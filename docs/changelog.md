@@ -4,6 +4,9 @@
 
 ### Added
 
+- Added a systemd `Type=simple` Runtime unit, headless live-source service config, volatile `/run/outdoor-agent` status/socket paths, bounded failure restart, SIGTERM handling, sandboxing, and a closed device allow-list.
+- Added Runtime supervision contract verification plus negative fixtures for disabled restart, unbounded restart, widened device policy, and disabled service socket.
+- Added ADR-0026 and a deployment flow that installs the Runtime unit/config by default but requires explicit switches to enable or start it.
 - Added an optional cooperative Unix domain socket Runtime status service with bounded `GET_STATUS`/`PING` protocol, 0660 permissions, stale/active path safeguards, fixed client/request/idle limits, and no third-party dependency.
 - Added `outdoor_status_query`, shared file/socket JSON serialization, `ipc` status fields, configuration/CLI switches, deployment packaging, cross-platform tests, Stage 2 plan, and ADR-0025.
 - Added an always-on F407 host-test check so Release builds execute assertions and assertion-contained calls instead of losing them to `NDEBUG`.
@@ -12,10 +15,12 @@
 
 ### Changed
 
+- MP157 deployment now packages `outdoor-agent-runtime.service` and `outdoor_agent_service.conf`; `-StartRuntimeService` implies `-EnableRuntimeService`, while the default performs no Runtime enable/start action.
 - MP157 deployment packaging now includes both `outdoor_core_runtime` and `outdoor_status_query`; the status socket remains disabled by default so existing finite file/mock runs retain their prior lifecycle.
 
 ### Verification
 
+- Runtime supervision contract and four negative fixtures passed; the full Runtime verifier loaded the service config and completed a file/mock no-hardware smoke. No deployment or systemd state change was executed.
 - MP157 Windows GCC Release CTest passed 11/11, Runtime verifier passed, and GNU ARM Linux 9.2.1 linked all Runtime, query-client, and Unix socket test targets. No COM3/COM9, deployment, reset, power-cycle, or board action was performed.
 - F407 GCC Release and MSVC Debug CTest passed 7/7 after replacing standard `assert`; the F407 ARM firmware build also passed.
 - F407 host CTest passed 7/7. The formal 400 kHz image remained byte-identical at 19384 bytes and SHA256 `f0addc29...b9d1e`; the 400 kHz ICM-only baseline remained 15072 bytes and SHA256 `c07e235a...2f80a`.

@@ -1,0 +1,40 @@
+[Unit]
+Description=AI Outdoor Agent core runtime
+Documentation=https://github.com/Narcissus0520/AI-Outdoor-Agent-Platform-Based-on-STM32MP157-STM32F407ZG
+Requires=outdoor-agent-icm20608.service
+After=local-fs.target outdoor-agent-icm20608.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/outdoor-agent
+RuntimeDirectory=outdoor-agent
+RuntimeDirectoryMode=0750
+ExecStart=/opt/outdoor-agent/bin/outdoor_core_runtime --config /opt/outdoor-agent/config/outdoor_agent_service.conf
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/run/outdoor-agent
+DevicePolicy=closed
+DeviceAllow=/dev/ttySTM1 rw
+DeviceAllow=/dev/ttySTM2 rw
+DeviceAllow=/dev/icm20608 r
+
+[Install]
+WantedBy=multi-user.target

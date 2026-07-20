@@ -73,6 +73,7 @@
 | TRB-20260721-034 | 2026-07-21 | F407 Host Tests | Release 禁用 `assert` 导致测试副作用丢失、假绿与数值异常 | 已关闭 | A | [记录](#trb-20260721-034-release-禁用-assert-导致测试副作用丢失与假绿) |
 | TRB-20260721-035 | 2026-07-21 | MP157 ARM Build | PowerShell 将交叉编译器变量作为字面量传给 CMake | 已关闭 | A | [记录](#trb-20260721-035-powershell-将交叉编译器变量作为字面量传给-cmake) |
 | TRB-20260721-036 | 2026-07-21 | MP157 Unix IPC Test | ARM 测试目标使用 `std::thread` 但未显式链接 pthread | 已关闭 | A | [记录](#trb-20260721-036-arm-测试目标未显式链接-pthread) |
+| TRB-20260721-037 | 2026-07-21 | Runtime Supervision Tests | PowerShell 把预期失败子进程 stderr 提升为终止错误 | 已关闭 | A | [记录](#trb-20260721-037-powershell-把预期失败子进程-stderr-提升为终止错误) |
 
 ## 问题详细复盘
 
@@ -851,6 +852,35 @@
 | 2 | 仅给集成测试链接 `Threads::Threads` 后重建 | 依赖只属于测试驱动线程 | Windows 11/11 CTest 与 ARM 全目标链接通过 | 根因、修复和回归闭环 | A |
 
 面试讲述要点：跨平台测试依赖也必须进入构建模型；Windows 能链接不代表 Linux 目标会自动补 pthread，应把依赖精确放在使用线程的测试目标上，避免污染生产二进制。
+
+### TRB-20260721-037: PowerShell 把预期失败子进程 stderr 提升为终止错误
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.2 Runtime supervision verifier 首轮负向测试 |
+| 模块与版本 | `verify_runtime_supervision_tests.ps1`；Windows PowerShell 5.1 |
+| 环境与前提 | 纯主机测试；用子 PowerShell 运行 verifier，并故意把 `Restart=on-failure` 改为 `Restart=no`。未访问 COM3/COM9 或板端。 |
+| 问题现象 | verifier 按设计向 stderr 报告不安全重启策略，但父脚本在取得 `$LASTEXITCODE` 前以 `NativeCommandError` 终止。局部修复后，四个负向用例均符合预期，脚本作用域仍保留最后一个子进程的 `$LASTEXITCODE=1`，调用方又把成功自测误判为失败。 |
+| 影响范围 | 负向自测不能区分“verifier 正确拒绝 fixture”和“测试驱动自身失败”；生产 unit、Runtime 和板端状态均未改变。 |
+| 复现步骤 | 父脚本设置 `$ErrorActionPreference = 'Stop'`，执行预期返回非零且写 stderr 的子 `powershell.exe`，并尝试用退出码判断结果。 |
+| 预期结果 | 捕获子进程 stdout/stderr 和退出码；预期失败用例返回非零时测试继续。 |
+| 实际结果 | 重定向后的 native stderr 先被提升为终止错误，退出码断言未执行。 |
+| 根因结论 | Windows PowerShell 在 `ErrorActionPreference=Stop` 下把 native 子进程 stderr 包装为错误记录；预期失败测试必须在局部允许该错误流，再恢复严格错误策略并检查退出码。此外，以 `&` 调用另一个 `.ps1` 不会自动把成功状态写回 `$LASTEXITCODE`，该变量可能保留脚本内部最后一个 native 子进程的值。 |
+| 最终方案 | `Invoke-Verifier` 只在子进程调用期间把 `ErrorActionPreference` 临时设为 `Continue`，在 `finally` 恢复原值，并以当次 `$LASTEXITCODE` 判断正/负向结果；调用 `.ps1` 的上层脚本改为依赖 PowerShell 异常传播，不再读取可能陈旧的 `$LASTEXITCODE`。 |
+| 验证结果 | 有效 unit/config 正向通过；`Restart=no`、`StartLimitBurst=0`、`DevicePolicy=auto`、socket disabled 四个负向 fixture 均被 verifier 拒绝；独立自测和完整 `verify_runtime.ps1` 均通过。 |
+| 剩余风险 | 本问题已关闭；该测试依赖 Windows PowerShell 子进程语义，目标 Linux 上仍需使用 `systemd-analyze verify` 和真实 service 生命周期验收。 |
+| 证据与关联资料 | 首轮 `NativeCommandError` 原始输出；修复后 `Runtime supervision verifier tests passed.`。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 运行含一个正向和四个负向 fixture 的 verifier 自测 | 需要证明静态检查会拒绝被放宽的监管策略 | 首个预期失败 fixture 触发父脚本终止 | 检查 PowerShell native stderr 与严格错误策略交互 | A |
+| 2 | 在子进程调用局部使用 `Continue`，随后恢复 `Stop` 并断言退出码 | 预期失败 stderr 是测试数据，不应绕过退出码判定 | 正向与四个负向用例全部符合预期；调用方仍读到最后负向用例遗留的 1 | 去除脚本间调用后的陈旧退出码判断 | A |
+| 3 | `.ps1` 调用只依赖异常传播，native 子进程仍在局部检查退出码 | PowerShell 脚本失败会 throw，成功不保证重置全局 `$LASTEXITCODE` | 独立自测和完整 Runtime verifier 均通过 | 两层误判全部闭环，问题关闭 | A |
+
+面试讲述要点：负向测试不仅要让被测程序失败，还要证明测试框架能可靠地区分“预期拒绝”和“驱动崩溃”；对子进程 stderr 和退出码的语义必须显式建模。
 
 ## 新问题记录模板
 
