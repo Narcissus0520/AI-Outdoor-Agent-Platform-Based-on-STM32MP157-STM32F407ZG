@@ -43,32 +43,16 @@ std::string jsonEscape(const std::string& value)
 StatusPublisher::StatusPublisher(std::string outputPath)
     : outputPath_(std::move(outputPath)) {}
 
-bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std::string& error) const
+std::string StatusPublisher::serialize(const outdoor::runtime::RuntimeStatus& status)
 {
-    namespace fs = std::filesystem;
-
-    try {
-        const fs::path path(outputPath_);
-        const fs::path parent = path.parent_path();
-        if (!parent.empty()) {
-            fs::create_directories(parent);
-        }
-
-        const fs::path tempPath = path.string() + ".tmp";
-        {
-            std::ofstream stream(tempPath, std::ios::trunc);
-            if (!stream.is_open()) {
-                error = "failed to open temporary status output path: " + tempPath.string();
-                return false;
-            }
-
-            const auto& mcu = status.mcuStatus;
-            const auto& imu = mcu.imuSample;
-            const auto& compass = mcu.compassStatus;
-            const auto& gnss = status.gnssStatus;
-            const auto& fix = gnss.fix;
-            const auto& boardImu = status.boardImuStatus;
-            stream << std::fixed << std::setprecision(3)
+    const auto& mcu = status.mcuStatus;
+    const auto& imu = mcu.imuSample;
+    const auto& compass = mcu.compassStatus;
+    const auto& gnss = status.gnssStatus;
+    const auto& fix = gnss.fix;
+    const auto& boardImu = status.boardImuStatus;
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3)
                    << "{\n"
                    << "  \"runtime\": {\n"
                    << "    \"state\": \"" << outdoor::runtime::runtimeStateToString(status.state) << "\",\n"
@@ -77,6 +61,14 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
                    << "    \"active_service_count\": " << status.activeServiceCount << ",\n"
                    << "    \"completed_service_count\": " << status.completedServiceCount << ",\n"
                    << "    \"last_error\": \"" << jsonEscape(status.lastError) << "\"\n"
+                   << "  },\n"
+                   << "  \"ipc\": {\n"
+                   << "    \"status_file_path\": \""
+                   << jsonEscape(status.storageStatusOutputPath) << "\",\n"
+                   << "    \"status_socket_enabled\": "
+                   << (status.statusSocketEnabled ? "true" : "false") << ",\n"
+                   << "    \"status_socket_path\": \""
+                   << jsonEscape(status.statusSocketPath) << "\"\n"
                    << "  },\n"
                    << "  \"storage\": {\n"
                    << "    \"enabled\": " << (status.storageEnabled ? "true" : "false") << ",\n"
@@ -235,6 +227,33 @@ bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std
                    << "    \"last_error\": \"" << jsonEscape(boardImu.lastError) << "\"\n"
                    << "  }\n"
                    << "}\n";
+    return stream.str();
+}
+
+bool StatusPublisher::publish(const outdoor::runtime::RuntimeStatus& status, std::string& error) const
+{
+    namespace fs = std::filesystem;
+
+    try {
+        const fs::path path(outputPath_);
+        const fs::path parent = path.parent_path();
+        if (!parent.empty()) {
+            fs::create_directories(parent);
+        }
+
+        const fs::path tempPath = path.string() + ".tmp";
+        {
+            std::ofstream stream(tempPath, std::ios::trunc);
+            if (!stream.is_open()) {
+                error = "failed to open temporary status output path: " + tempPath.string();
+                return false;
+            }
+
+            stream << serialize(status);
+            if (!stream.good()) {
+                error = "failed to write temporary status output path: " + tempPath.string();
+                return false;
+            }
         }
 
         if (fs::exists(path)) {

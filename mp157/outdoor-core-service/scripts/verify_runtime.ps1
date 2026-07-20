@@ -52,6 +52,8 @@ try {
         "src\gnss\nmea_parser.cpp" `
         "src\input\file_replay_input.cpp" `
         "src\ipc\status_publisher.cpp" `
+        "src\ipc\unix_status_client.cpp" `
+        "src\ipc\unix_status_service.cpp" `
         "src\log\logger.cpp" `
         "src\mcu\imu_payload_parser.cpp" `
         "src\mcu\mcu_command.cpp" `
@@ -105,6 +107,14 @@ try {
 
     if ($statusText -notmatch '"completed_service_count": 3') {
         throw "runtime status output did not report all services completed"
+    }
+
+    if ($statusText -notmatch '"ipc": \{') {
+        throw "runtime status output did not contain IPC status object"
+    }
+
+    if ($statusText -notmatch '"status_socket_enabled": false') {
+        throw "default runtime status should report the Unix socket disabled"
     }
 
     if ($statusText -notmatch '"gnss": \{') {
@@ -391,7 +401,7 @@ try {
         throw "storage log output did not contain runtime logs"
     }
 
-    Write-Host "Stage 1 runtime verification passed."
+    Write-Host "Runtime verification passed."
 } finally {
     Pop-Location
     Start-Sleep -Milliseconds 300

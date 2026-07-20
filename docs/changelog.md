@@ -4,11 +4,20 @@
 
 ### Added
 
+- Added an optional cooperative Unix domain socket Runtime status service with bounded `GET_STATUS`/`PING` protocol, 0660 permissions, stale/active path safeguards, fixed client/request/idle limits, and no third-party dependency.
+- Added `outdoor_status_query`, shared file/socket JSON serialization, `ipc` status fields, configuration/CLI switches, deployment packaging, cross-platform tests, Stage 2 plan, and ADR-0025.
+- Added an always-on F407 host-test check so Release builds execute assertions and assertion-contained calls instead of losing them to `NDEBUG`.
 - Added a validated `SENSOR_HUB_I2C2_CLOCK_HZ` CMake cache setting for controlled 100 kHz/400 kHz F407 sensor-bus A/B builds. The default 400 kHz path injects no override; unsupported values fail configuration.
 - Added F407 documentation for building an ICM-only 100 kHz non-production image and requiring a full power cycle before board conclusions.
 
+### Changed
+
+- MP157 deployment packaging now includes both `outdoor_core_runtime` and `outdoor_status_query`; the status socket remains disabled by default so existing finite file/mock runs retain their prior lifecycle.
+
 ### Verification
 
+- MP157 Windows GCC Release CTest passed 11/11, Runtime verifier passed, and GNU ARM Linux 9.2.1 linked all Runtime, query-client, and Unix socket test targets. No COM3/COM9, deployment, reset, power-cycle, or board action was performed.
+- F407 GCC Release and MSVC Debug CTest passed 7/7 after replacing standard `assert`; the F407 ARM firmware build also passed.
 - F407 host CTest passed 7/7. The formal 400 kHz image remained byte-identical at 19384 bytes and SHA256 `f0addc29...b9d1e`; the 400 kHz ICM-only baseline remained 15072 bytes and SHA256 `c07e235a...2f80a`.
 - Built the ICM-only 100 kHz image at 15072 bytes with SHA256 `56b31d76...c3e56`; its Ninja rules contain the 100 kHz definition while the 400 kHz baseline contains no override. Invalid clock `123456` was rejected as designed.
 - Did not claim deployment success: the first COM6 session returned `0xF9` at the first write address, while the second read chip ID as `0x0493` instead of `0x0413` and failed byte-for-byte verification at `0x0800013D`. The F407 application Flash is currently untrusted pending a physical COM6 reconnect and a fresh verified programming session.

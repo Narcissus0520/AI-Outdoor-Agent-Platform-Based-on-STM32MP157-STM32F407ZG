@@ -1,6 +1,7 @@
 #include "config/config_loader.h"
 #include "gnss/gnss_status.h"
 #include "ipc/status_publisher.h"
+#include "ipc/unix_status_service.h"
 #include "log/logger.h"
 #include "mcu/mcu_command.h"
 #include "mcu/mcu_status.h"
@@ -55,6 +56,7 @@ void printUsage(const char* programName)
               << " [--mcu-command none|ping]"
               << " [--runtime-run-seconds seconds]"
               << " [--status-output path]"
+              << " [--status-socket] [--no-status-socket] [--status-socket-path path]"
               << " [--storage] [--no-storage] [--storage-root path]"
               << " [--storage-status-output path] [--storage-dashboard-output path]"
               << " [--storage-log-file path]"
@@ -149,6 +151,8 @@ outdoor::runtime::RuntimeStatus buildStatus(const outdoor::runtime::RuntimeManag
     outdoor::runtime::RuntimeStatus status = runtime.status();
     const outdoor::log::LoggerStatus loggerStatus = outdoor::log::Logger::status();
     status.storageEnabled = config.storageEnabled;
+    status.statusSocketEnabled = config.statusSocketEnabled;
+    status.statusSocketPath = config.statusSocketPath;
     status.storageRootPath = config.storageRootPath;
     status.storageStatusOutputPath = config.statusOutputPath;
     status.storageDashboardOutputPath = config.dashboardOutputPath;
@@ -206,6 +210,9 @@ int main(int argc, char* argv[])
     std::string cliRuntimeRunSeconds;
     std::string cliLogLevel;
     std::string cliStatusOutputPath;
+    bool cliEnableStatusSocket = false;
+    bool cliDisableStatusSocket = false;
+    std::string cliStatusSocketPath;
     bool cliEnableStorage = false;
     bool cliDisableStorage = false;
     std::string cliStorageRootPath;
@@ -322,6 +329,20 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliStatusOutputPath = argv[++index];
+        } else if (arg == "--status-socket") {
+            cliEnableStatusSocket = true;
+            cliDisableStatusSocket = false;
+        } else if (arg == "--no-status-socket") {
+            cliDisableStatusSocket = true;
+            cliEnableStatusSocket = false;
+        } else if (arg == "--status-socket-path") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--status-socket-path requires a file path");
+                return 1;
+            }
+            cliStatusSocketPath = argv[++index];
+            cliEnableStatusSocket = true;
+            cliDisableStatusSocket = false;
         } else if (arg == "--storage") {
             cliEnableStorage = true;
             cliDisableStorage = false;
@@ -559,6 +580,18 @@ int main(int argc, char* argv[])
         config.statusOutputPath = cliStatusOutputPath;
     }
 
+    if (cliEnableStatusSocket) {
+        config.statusSocketEnabled = true;
+    }
+
+    if (cliDisableStatusSocket) {
+        config.statusSocketEnabled = false;
+    }
+
+    if (!cliStatusSocketPath.empty()) {
+        config.statusSocketPath = cliStatusSocketPath;
+    }
+
     if (cliEnableStorage) {
         config.storageEnabled = true;
     }
@@ -741,6 +774,9 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("Board IMU character device path: " + config.boardImuDevicePath);
     outdoor::log::Logger::info("Board IMU IIO path: " + config.boardImuIioPath);
     outdoor::log::Logger::info("Runtime status output: " + config.statusOutputPath);
+    outdoor::log::Logger::info(std::string("Runtime status socket enabled: ")
+                               + (config.statusSocketEnabled ? "true" : "false"));
+    outdoor::log::Logger::info("Runtime status socket path: " + config.statusSocketPath);
     outdoor::log::Logger::info(std::string("Dashboard enabled: ") + (config.dashboardEnabled ? "true" : "false"));
     outdoor::log::Logger::info("Dashboard output: " + config.dashboardOutputPath);
     outdoor::log::Logger::info("Dashboard output mode: " + config.dashboardOutputMode);
@@ -860,6 +896,16 @@ int main(int argc, char* argv[])
         runtime.setMcuStatus(mcuStatus);
         runtime.setBoardImuStatus(boardImuStatus);
     };
+    const auto currentStatusJson = [&]() {
+        syncRuntimeStatus();
+        return outdoor::ipc::StatusPublisher::serialize(
+            buildStatus(runtime, config, storageLastError));
+    };
+    if (config.statusSocketEnabled) {
+        runtime.addService(std::make_unique<outdoor::ipc::UnixStatusService>(
+            config.statusSocketPath,
+            currentStatusJson));
+    }
     syncRuntimeStatus();
     publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
 

@@ -1,5 +1,41 @@
 # Dev Log
 
+## 2026-07-21 - Stage 2.1 Unix Runtime Status Query
+
+### 本次完成
+
+- 保留原子 `runtime_status.json` 文件发布，并从 `StatusPublisher` 提取公共序列化入口，保证文件与查询响应使用同一 JSON schema。
+- 新增默认关闭的 `UnixStatusService`：以非阻塞 `AF_UNIX/SOCK_STREAM` 接入协作式 Runtime，支持 `GET_STATUS`/`PING`，限制 4 个客户端、64 字节请求和 5 秒空闲连接。
+- socket 固定权限为 0660；启动拒绝普通文件和活跃 socket，只清理确认失活的 stale socket，退出时关闭连接并删除自身路径。
+- 新增 `outdoor_status_query` 配套客户端、配置/CLI 开关和部署文件清单，不引入第三方依赖。
+- 新增跨平台协议/错误边界测试和 POSIX 集成测试源码；使用 `Threads::Threads` 精确声明测试专用线程依赖。
+- 新增 Stage 2 计划和 ADR-0025；TRB-20260721-035/036 记录了 ARM 配置参数与 pthread 链接问题及修复证据。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/ipc/`、`src/ipc/`、`src/status_query_main.cpp`
+- `mp157/outdoor-core-service/CMakeLists.txt`、`src/main.cpp`、配置、状态模型和测试
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`、`scripts/deploy_mp157_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`、`docs/stage1_plan.md`、`docs/stage2_plan.md`
+- `docs/adr/0006-evaluate-unix-domain-status-query.md`、`docs/adr/0025-use-unix-domain-socket-status-query.md`
+- `docs/troubleshooting_log.md`、`docs/changelog.md`、`docs/dev_log.md`
+
+### 验证结果
+
+- MP157 Windows GCC Release 构建与 CTest 11/11 通过；`verify_runtime.ps1` 通过。
+- GNU ARM Linux 9.2.1 全目标交叉构建通过：`outdoor_core_runtime` 273944 B、`outdoor_status_query` 18984 B，包含 POSIX Unix socket 源码和测试目标链接。
+- F407 GCC Release 与 MSVC Debug CTest 均为 7/7；F407 ARM 固件构建通过。
+- Compass Calibrator CTest 3/3 通过；Frame Decoder 构建通过；两份修改后的 PowerShell 脚本 parser errors 为 0。
+- 当前 Windows 环境没有 WSL 发行版、Docker/Podman 或 ARM 用户态模拟器，因此 POSIX 集成测试源码未在本机 Linux 用户态执行。
+- 未访问 COM3/COM9，未执行部署、烧录、复位、物理上下电或真实板端运行。
+
+### 后续 TODO
+
+- 继续 Stage 2.2 Runtime systemd 进程托管的软件设计、unit 和静态验证。
+- 后续统一在 MP157 验证 socket 权限、活动实例冲突、stale 恢复、连续查询与受控退出清理。
+- Stage 1 真实硬件、电气、室外、小时级和掉电验收维持未完成。
+
 ## 2026-07-21 - F407 Host Test Checks Stay Active in Release
 
 ### 本次完成

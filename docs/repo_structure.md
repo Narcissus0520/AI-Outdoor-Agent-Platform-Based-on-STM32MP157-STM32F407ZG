@@ -37,6 +37,8 @@ mp157/outdoor-core-service/
 
 Runtime 服务生命周期已从阻塞式 `run()` 演进为单线程协作式 `poll()`。`RuntimeManager` 交错推进 GNSS、MCU、板载 IMU、dashboard 和 launcher，周期发布 active/completed service 计数，并支持 SIGINT/SIGTERM 与 `runtime_run_seconds` 受控退出；`tests/runtime_manager_tests.cpp` 覆盖交错、完成、失败、停止和启动回滚。本机与 ARM 交叉构建已验证，真实 MP157 多设备小时级协作运行仍待执行。
 
+Stage 2.1 在保留原子 JSON 文件发布的基础上新增 `UnixStatusService` 和 `UnixStatusClient`。默认关闭的 `AF_UNIX/SOCK_STREAM` 服务以非阻塞方式接入同一协作式调度，`GET_STATUS` 返回与文件完全相同的 JSON，`PING` 用于存活探测；配套 `outdoor_status_query` 避免依赖板端 `nc -U` 或 `socat`。Windows 11/11 CTest、Runtime verifier 和 GNU ARM Linux 9.2.1 全目标交叉构建已通过，真实 MP157 socket 生命周期验收仍待执行。
+
 F407 当前还通过 `sensor_magnetometer` 帧上报 MMC5603 三轴磁场，MP157 Runtime 将其解析为独立 `magnetometer` 状态。`include/navigation/compass_estimator.h` 与 `src/navigation/compass_estimator.cpp` 再组合时间接近的 ICM42688 加速度，执行硬铁、3×3 软铁/安装矩阵、倾斜补偿和磁偏角修正，输出独立 `compass` 状态；默认系数只标记为 `uncalibrated`，真实板标定待完成。
 
 F407 BMP390 通过 `sensor_barometer` 帧上报补偿后的气压和温度，MP157 Runtime 将其解析为独立 `barometer` 状态；2026-07-18 已完成真实上板验证。F407 I2C2 BSP 还会在运行期事务失败后硬复位外设、释放共享总线并重试一次，2026-07-19 已通过 60 秒三传感器持续采集。

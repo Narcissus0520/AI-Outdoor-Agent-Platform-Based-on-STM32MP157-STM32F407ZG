@@ -1,6 +1,7 @@
 param(
     [string]$PortName = "COM9",
     [string]$RuntimePath = "",
+    [string]$StatusQueryPath = "",
     [string]$ConfigPath = "",
     [string]$InstallRoot = "/opt/outdoor-agent",
     [int]$BaudRate = 115200
@@ -18,6 +19,9 @@ if ($InstallRoot -notmatch '^/[A-Za-z0-9._/-]+$' -or $InstallRoot.EndsWith('/'))
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($RuntimePath)) {
     $RuntimePath = Join-Path $repoRoot "mp157/outdoor-core-service/build-arm/outdoor_core_runtime"
+}
+if ([string]::IsNullOrWhiteSpace($StatusQueryPath)) {
+    $StatusQueryPath = Join-Path $repoRoot "mp157/outdoor-core-service/build-arm/outdoor_status_query"
 }
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $repoRoot "mp157/outdoor-core-service/config/runtime.conf"
@@ -38,6 +42,7 @@ $mcuCompassMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data
 
 $localFiles = @(
     @{ Local = $RuntimePath; Remote = "$InstallRoot/bin/outdoor_core_runtime"; Mode = "0755" },
+    @{ Local = $StatusQueryPath; Remote = "$InstallRoot/bin/outdoor_status_query"; Mode = "0755" },
     @{ Local = $ConfigPath; Remote = "$InstallRoot/config/runtime.conf"; Mode = "0644" },
     @{ Local = $healthPreflightPath; Remote = "$InstallRoot/scripts/run_board_health_preflight.sh"; Mode = "0755" },
     @{ Local = $healthMonitorPath; Remote = "$InstallRoot/scripts/monitor_board_runtime_health.sh"; Mode = "0755" },

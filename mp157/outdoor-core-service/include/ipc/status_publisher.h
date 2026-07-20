@@ -10,6 +10,7 @@ class StatusPublisher {
 public:
     explicit StatusPublisher(std::string outputPath);
 
+    static std::string serialize(const outdoor::runtime::RuntimeStatus& status);
     bool publish(const outdoor::runtime::RuntimeStatus& status, std::string& error) const;
     const std::string& outputPath() const;
 

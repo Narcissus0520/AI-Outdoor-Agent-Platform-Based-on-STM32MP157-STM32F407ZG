@@ -267,6 +267,18 @@ bool ConfigLoader::load(const std::string& filePath, AppConfig& config, std::str
             config.runtimeRunSeconds = parsed;
         } else if (key == "status_output_path") {
             config.statusOutputPath = value;
+        } else if (key == "status_socket_enabled") {
+            bool parsed = false;
+            if (!parseBool(value, parsed)) {
+                std::ostringstream message;
+                message << "invalid config line " << lineNumber
+                        << ": unsupported status_socket_enabled '" << value << "'";
+                error = message.str();
+                return false;
+            }
+            config.statusSocketEnabled = parsed;
+        } else if (key == "status_socket_path") {
+            config.statusSocketPath = value;
         } else if (key == "storage_enabled") {
             bool parsed = false;
             if (!parseBool(value, parsed)) {

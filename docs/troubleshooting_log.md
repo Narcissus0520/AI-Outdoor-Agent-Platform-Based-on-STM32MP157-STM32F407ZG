@@ -71,6 +71,8 @@
 | TRB-20260720-032 | 2026-07-20 | F407 Diagnostic Build | 新建隔离构建目录时 toolchain/Ninja 参数未可靠解析 | 已关闭 | A | [记录](#trb-20260720-032-f407-隔离构建参数解析失败) |
 | TRB-20260721-033 | 2026-07-21 | MP157 Build Baseline | 复用已有 `build` 目录时 CMake 生成器冲突 | 已关闭 | A | [记录](#trb-20260721-033-复用已有-build-目录时-cmake-生成器冲突) |
 | TRB-20260721-034 | 2026-07-21 | F407 Host Tests | Release 禁用 `assert` 导致测试副作用丢失、假绿与数值异常 | 已关闭 | A | [记录](#trb-20260721-034-release-禁用-assert-导致测试副作用丢失与假绿) |
+| TRB-20260721-035 | 2026-07-21 | MP157 ARM Build | PowerShell 将交叉编译器变量作为字面量传给 CMake | 已关闭 | A | [记录](#trb-20260721-035-powershell-将交叉编译器变量作为字面量传给-cmake) |
+| TRB-20260721-036 | 2026-07-21 | MP157 Unix IPC Test | ARM 测试目标使用 `std::thread` 但未显式链接 pthread | 已关闭 | A | [记录](#trb-20260721-036-arm-测试目标未显式链接-pthread) |
 
 ## 问题详细复盘
 
@@ -793,6 +795,62 @@
 | 2 | 扫描全部 F407 测试并引入 always-on test check | 7 个文件均使用标准 `assert`，且存在断言内副作用 | Release 无原告警且 7/7；MSVC Debug 7/7；ARM 构建通过 | 根因、修复和跨配置验证闭环 | A |
 
 面试讲述要点：单元测试显示绿色不代表检查真实执行；跨 Debug/Release 验证、编译告警和失败类型可以共同揭示 `NDEBUG` 删除断言及副作用的问题。
+
+### TRB-20260721-035: PowerShell 将交叉编译器变量作为字面量传给 CMake
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.1 首次 MP157 ARM 交叉配置 |
+| 模块与版本 | `mp157/outdoor-core-service`；CMake 4.3.3；GNU ARM Linux 9.2.1；当前分支 `agent/stage2-unix-status-ipc` |
+| 环境与前提 | Windows PowerShell；编译器文件已确认存在；使用全新临时 ARM 构建树。未执行串口、部署或板端命令。 |
+| 问题现象 | CMake 报告 `CMAKE_CXX_COMPILER: $compiler is not a full path and was not found in the PATH`，配置阶段直接失败。 |
+| 影响范围 | 首轮 MP157 ARM 编译未执行；尚不能用该轮判断 POSIX Unix socket 源码是否能被 9.2.1 工具链编译。源码和板端状态未改变。 |
+| 复现步骤 | 在 PowerShell 原生命令中以内联 `-DCMAKE_CXX_COMPILER=$compiler` 形式传递变量。 |
+| 预期结果 | CMake 收到交叉编译器绝对路径并生成 Linux/ARM Ninja 构建树。 |
+| 实际结果 | CMake 收到字面量 `$compiler`。 |
+| 根因结论 | PowerShell 对该原生命令参数的拼接没有形成预期的单个 `-Dkey=value` 字符串；与 TRB-20260720-032 的参数边界问题同类。显式参数数组复验确认不是源码或编译器路径缺失。 |
+| 最终方案 | 构造包含完整 `-DCMAKE_CXX_COMPILER=<absolute-path>` 的参数数组，并在配置成功后才进入构建。 |
+| 验证结果 | CMake 正确识别 GNU ARM Linux 9.2.1；修正测试线程链接后，`outdoor_core_runtime`、`outdoor_status_query` 和全部测试目标完成 ARM 全量编译链接。 |
+| 剩余风险 | 本问题已关闭；长期可用独立 toolchain file 进一步减少命令行参数边界风险。真实 Unix socket 运行验收属于 Stage 2.1 板端待办，不影响本配置问题闭环。 |
+| 证据与关联资料 | 本轮 CMake 原始错误；关联 TRB-20260720-032。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 以内联 PowerShell 变量传递交叉编译器 | 编译器绝对路径已存在 | CMake 收到字面量 `$compiler` 并拒绝配置 | 改用显式参数数组 | A |
+| 2 | 用显式参数数组传递完整 `-Dkey=value` | 避免原生命令参数二次拆分 | CMake 识别 GNU 9.2.1 并生成 Linux/ARM Ninja 构建树 | 配置调用问题关闭 | A |
+
+面试讲述要点：交叉编译失败需要先区分“源码编不过”和“配置根本没收到工具路径”；检查 CMake 回显的实际值并在配置失败后停止，可以避免把调用错误误判为代码缺陷。
+
+### TRB-20260721-036: ARM 测试目标未显式链接 pthread
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.1 MP157 ARM 首次有效编译 |
+| 模块与版本 | `unix_status_service_tests`；GNU ARM Linux 9.2.1；CMake/Ninja Release |
+| 环境与前提 | 使用显式参数数组完成 Linux/ARM 交叉配置；`outdoor_core_runtime`、`outdoor_status_query` 和 Unix socket 源码均已编译链接。未运行 ARM 测试，也未部署到板端。 |
+| 问题现象 | 链接 `unix_status_service_tests` 时报告两处 `undefined reference to pthread_create`，Ninja 在 53/53 停止。 |
+| 影响范围 | ARM 全目标构建返回失败；Runtime 与查询客户端产物已生成，但本轮不能记为完整交叉构建通过。 |
+| 复现步骤 | 交叉构建包含 `std::thread` 的 Unix status service 集成测试，测试目标只链接 `outdoor_core`。 |
+| 预期结果 | CMake 为测试目标声明并传递平台线程库，所有目标链接完成。 |
+| 实际结果 | 测试对象引用 `pthread_create`，链接命令没有 `-pthread` 或 pthread 库。 |
+| 根因结论 | 测试通过后台线程驱动非阻塞服务，但 CMake 没有用 `find_package(Threads)` / `Threads::Threads` 表达线程依赖；Windows 原生工具链隐式满足，Linux ARM 链接器则正确拒绝。 |
+| 最终方案 | 使用 `find_package(Threads REQUIRED)`，只为 `unix_status_service_tests` 显式链接 `Threads::Threads`，不把测试专用线程依赖扩散到 Runtime 生产目标。 |
+| 验证结果 | Windows GCC Release CTest 11/11 通过；GNU ARM Linux 9.2.1 的 Runtime、查询客户端和全部测试目标完成编译链接，原 `pthread_create` 未定义引用消失。 |
+| 剩余风险 | 本链接问题已关闭。ARM 测试二进制在当前 Windows 主机只能完成交叉链接；实际 Unix socket 生命周期仍需 Linux 主机或 MP157 后续验收。 |
+| 证据与关联资料 | ARM 链接器 `undefined reference to pthread_create` 原始输出。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 用修正后的参数数组执行 ARM 全目标构建 | 验证 POSIX 实现与旧工具链兼容 | 生产目标链接成功，仅线程化测试缺少 pthread | 在测试目标声明 Threads 依赖 | A |
+| 2 | 仅给集成测试链接 `Threads::Threads` 后重建 | 依赖只属于测试驱动线程 | Windows 11/11 CTest 与 ARM 全目标链接通过 | 根因、修复和回归闭环 | A |
+
+面试讲述要点：跨平台测试依赖也必须进入构建模型；Windows 能链接不代表 Linux 目标会自动补 pthread，应把依赖精确放在使用线程的测试目标上，避免污染生产二进制。
 
 ## 新问题记录模板
 
