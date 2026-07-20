@@ -104,9 +104,11 @@ Stage 2.1 已完成 Unix domain socket 状态查询，Stage 2.2 已完成 system
 - 无 `--confirm` 的主机 smoke 返回 2，且在 root/systemd 检查前拒绝。
 - 静态契约正向 fixture 通过；确认门槛、EXIT trap、SIGKILL、三次查询、禁止上下电命令和 self-test 部署六类弱化 fixture 均被拒绝。
 - 完整 Runtime verifier 调用新契约测试并通过；MP157 C++ 14/14 CTest、F407 7/7 CTest 和 GNU ARM Linux 9.2.1 全目标构建通过，ARM socket self-test 为 64336 B。
-- 本轮未执行板端脚本、部署、COM3/COM9、systemd 状态变更、复位或上下电。
+- ADR 实施提交时未执行板端脚本；2026-07-21 用户确认联调窗口后，COM9 完整部署与真实 MP157 验收已执行，未操作 COM3、复位或物理上下电。
+- 首轮验收发现 disabled/inactive unit 的 benign `reset-failed` 返回会被短路条件误判；TRB-20260721-046 将 reset 改为 best effort，并拆分 start/active/socket 诊断后完成回归和板端复测。
+- 第二轮报告 `/tmp/outdoor-agent-stage2-acceptance-IIppv5/acceptance_report.txt` 全部通过，受控重启与失败重启 PID 分别变化，`NRestarts 0 -> 1`，最终恢复 inactive/disabled。
 
 ## 后续 TODO
 
-- 用户进入统一联调窗口后，在确认 F407/MP157/GNSS 供电和接线状态的前提下执行部署，再显式运行 `/opt/outdoor-agent/scripts/run_stage2_board_acceptance.sh --confirm`。
-- 将输出的 `/tmp/outdoor-agent-stage2-acceptance-*` 完整目录回传并关联 `docs/troubleshooting_log.md`；只有报告通过且初始状态恢复成功，Stage 2.1/2.2/2.3 板端项才能勾选。
+- Stage 2.1/2.2/2.3 mock 边界的真实板端项已勾选；继续保留报告哈希和 TRB-20260721-046 关联证据。
+- 后续真实模型 backend 仍需单独完成依赖、ARM 资源、offline、许可证、deadline/cancellation 和故障隔离 ADR，不由本 ADR 的 mock 验收外推。

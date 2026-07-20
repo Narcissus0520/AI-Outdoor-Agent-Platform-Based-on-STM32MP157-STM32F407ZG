@@ -83,6 +83,11 @@ Assert-ContainsLiteral $scriptText 'validate_runtime_ownership' "unmanaged Runti
 Assert-ContainsLiteral $scriptText '/tmp/outdoor_agent_hour_pid' "long-test collision guard"
 Assert-ContainsLiteral $scriptText '"$socket_self_test" > "$report_root/unix_status_service_tests.txt"' "stale/active socket self-test"
 Assert-ContainsLiteral $scriptText 'stale_socket=true active_collision=true query=true unlink=true' "socket self-test evidence"
+Assert-ContainsLiteral $scriptText 'systemctl reset-failed "$service_name" >/dev/null 2>&1 || true' "benign reset-failed handling for unloaded units"
+Assert-ContainsLiteral $scriptText 'systemctl start "$service_name" > "$report_root/service_start.txt" 2>&1' "service-start diagnostic capture"
+Assert-ContainsLiteral $scriptText 'service_active timeout_seconds=$wait_seconds' "active-state timeout diagnosis"
+Assert-ContainsLiteral $scriptText 'service_socket timeout_seconds=$wait_seconds' "socket timeout diagnosis"
+Assert-DoesNotMatch $scriptText 'if\s+!\s+systemctl reset-failed[^\n]*\|\|' "fatal reset-failed startup gate"
 
 Assert-ContainsLiteral $scriptText 'directory_mode="$(stat -c ''%a'' "$runtime_directory")"' "Runtime directory permission check"
 Assert-ContainsLiteral $scriptText 'socket_mode="$(stat -c ''%a'' "$status_socket")"' "socket permission check"
@@ -120,5 +125,9 @@ Assert-ContainsLiteral $deploymentText '$InstallRoot/tests' "deployment tests di
 Assert-ContainsLiteral $deploymentText 'sh -n $InstallRoot/scripts/run_stage2_board_acceptance.sh' "deployed shell syntax check"
 Assert-ContainsLiteral $deploymentText 'verify_stage2_board_acceptance.ps1' "host acceptance verifier path"
 Assert-ContainsLiteral $deploymentText '& $stage2AcceptanceVerifierPath -ScriptPath $stage2AcceptancePath -DeploymentScriptPath $PSCommandPath' "host acceptance verifier invocation"
+Assert-ContainsLiteral $deploymentText 'board_command_batching.ps1' "bounded board-command batching helper"
+Assert-ContainsLiteral $deploymentText 'Invoke-BoardCommandBatches -Commands $modeCommands' "batched permission commands"
+Assert-ContainsLiteral $deploymentText 'Invoke-BoardCommandBatches -Commands $hashCommands' "batched hash commands"
+Assert-ContainsLiteral $deploymentText 'Invoke-BoardCommandBatches -Commands $syntaxCommands' "batched syntax commands"
 
 Write-Host "Stage 2 board acceptance contract verification passed."

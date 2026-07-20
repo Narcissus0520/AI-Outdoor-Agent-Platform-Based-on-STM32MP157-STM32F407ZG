@@ -14,7 +14,7 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 - [x] 增加 `outdoor_status_query` 本地查询客户端，并纳入 MP157 部署文件清单
 - [x] 增加跨平台协议测试、非 POSIX 失败边界测试和 POSIX socket 集成测试源码
 - [x] Windows GCC Release CTest 11/11、Runtime verifier 和 GNU ARM Linux 9.2.1 全目标交叉构建通过
-- [ ] 在真实 MP157 Linux 上启用 socket，验证文件权限、活动实例冲突、stale socket 恢复、连续查询和受控退出清理
+- [x] 在真实 MP157 Linux 上启用 socket，验证 0750/0660 权限、活动实例冲突、stale socket 恢复、连续三次查询和受控退出清理
 
 ## Stage 2.2: Runtime Process Supervision
 
@@ -25,7 +25,7 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 - [x] 将 Runtime 进程托管与现有 ICM20608 驱动加载 unit、长测独占保护和部署脚本协调
 - [x] 部署默认只安装不 enable/start；增加显式 `-EnableRuntimeService`、`-StartRuntimeService` 状态变更开关
 - [x] 增加纯软件 unit/config 静态检查、四个不安全变体负向测试和 service config 无硬件 smoke
-- [ ] 在真实 MP157 上验证 enable/start/stop/restart、SIGTERM 受控退出和异常退出恢复
+- [x] 在真实 MP157 上验证 enable/disable、start/stop/restart、SIGTERM 受控退出和单次 SIGKILL 异常退出恢复
 
 ## Stage 2.3: Local Agent Boundary
 
@@ -36,6 +36,7 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 - [x] 覆盖合法/拒绝/backend 失败与异常/输出超限/JSON 转义，以及 CLI help/mock smoke；MP157 CTest 14/14
 - [x] GNU ARM Linux 9.2.1 全目标交叉构建通过，并将 Agent terminal 纳入部署清单
 - [x] ADR-0027 记录本地/远程/接口优先方案比较，以及第三方依赖、交叉编译、内存/CPU/存储、离线与隔离门槛
+- [x] 在真实 MP157 上分别验证无 Runtime context 与经 Unix socket 读取只读 context 的 `mock_no_inference` terminal 路径
 
 真实模型 backend、语音/触摸对话、历史记忆和任务执行不属于已完成 Stage 2.3；没有形成依赖选型与板端资源证据前继续标为 planned。
 
@@ -50,11 +51,12 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 - [x] 输出独立 report、JSON、hash、systemd-analyze 和 journal 证据目录
 - [x] 增加纯主机契约 verifier 与六个安全边界负向 fixture，并纳入完整 Runtime verifier
 - [x] ADR-0028 记录显式确认、固定目标、状态恢复和不触碰整板电源/烧录的取舍
-- [ ] 在真实 MP157 上由用户显式执行并回传完整证据目录
+- [x] 在真实 MP157 上由用户确认联调窗口后显式执行，生成并回读完整 PASS report、产物清单、哈希和最终状态
 
 ## 当前验收边界
 
-- Stage 2.1、Stage 2.2、Stage 2.3 和 Stage 2.4 纯软件实现已完成；板端验收入口已准备但尚未执行，前三阶段真实 MP157 集成结论仍保留未完成。
+- Stage 2.1、Stage 2.2、Stage 2.3 mock 边界和 Stage 2.4 已完成真实 MP157 集成验收。2026-07-21 通过报告位于板端 `/tmp/outdoor-agent-stage2-acceptance-IIppv5/`，report SHA256 为 `d972d97d...792786`。
 - 当前 Windows 环境没有可用 WSL 发行版、Docker/Podman 或 ARM 用户态模拟器，因此 POSIX socket 集成测试源码未在本机 Linux 用户态执行。
-- 按当前任务约束，本轮没有通过 COM3/COM9 触发板端命令，也没有执行烧录、复位、物理上下电或真实硬件交互。
+- 本轮通过 COM9 部署并运行了 Stage 2 验收，但没有操作 COM3、烧录、复位或物理上下电；脚本最终恢复 Runtime `inactive/disabled`，socket 已删除。
+- 首轮真实验收暴露 disabled/inactive unit 的 benign `reset-failed` 被误判为启动失败；TRB-20260721-046 完成根因、修复、主机回归、增量部署和第二轮板端复测闭环。
 - Stage 1 中 ICM42688 电气/波形、室外 GNSS fix、罗盘实采标定、SD/双串口/framebuffer 小时级和掉电验收继续保持未完成，不因 Stage 2 软件推进而改变。

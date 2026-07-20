@@ -37,13 +37,13 @@ mp157/outdoor-core-service/
 
 Runtime 服务生命周期已从阻塞式 `run()` 演进为单线程协作式 `poll()`。`RuntimeManager` 交错推进 GNSS、MCU、板载 IMU、dashboard 和 launcher，周期发布 active/completed service 计数，并支持 SIGINT/SIGTERM 与 `runtime_run_seconds` 受控退出；`tests/runtime_manager_tests.cpp` 覆盖交错、完成、失败、停止和启动回滚。本机与 ARM 交叉构建已验证，真实 MP157 多设备小时级协作运行仍待执行。
 
-Stage 2.1 在保留原子 JSON 文件发布的基础上新增 `UnixStatusService` 和 `UnixStatusClient`。默认关闭的 `AF_UNIX/SOCK_STREAM` 服务以非阻塞方式接入同一协作式调度，`GET_STATUS` 返回与文件完全相同的 JSON，`PING` 用于存活探测；配套 `outdoor_status_query` 避免依赖板端 `nc -U` 或 `socat`。Windows 11/11 CTest、Runtime verifier 和 GNU ARM Linux 9.2.1 全目标交叉构建已通过，真实 MP157 socket 生命周期验收仍待执行。
+Stage 2.1 在保留原子 JSON 文件发布的基础上新增 `UnixStatusService` 和 `UnixStatusClient`。默认关闭的 `AF_UNIX/SOCK_STREAM` 服务以非阻塞方式接入同一协作式调度，`GET_STATUS` 返回与文件完全相同的 JSON，`PING` 用于存活探测；配套 `outdoor_status_query` 避免依赖板端 `nc -U` 或 `socat`。Windows 测试、Runtime verifier、GNU ARM Linux 9.2.1 全目标交叉构建与真实 MP157 socket 生命周期验收均已通过。
 
-Stage 2.2 新增 `deploy/systemd/outdoor-agent-runtime.service` 和 `config/outdoor_agent_service.conf`。unit 以 `Type=simple` 托管 headless live-source Runtime，依赖 ICM20608 loader，在 `/run/outdoor-agent` 发布 JSON/socket，并限制失败重启、可写目录、地址族和可访问设备。`verify_runtime_supervision*.ps1` 覆盖当前契约及四个不安全变体；部署默认只安装、不 enable/start，真实 systemd 生命周期待 MP157 后续验收。
+Stage 2.2 新增 `deploy/systemd/outdoor-agent-runtime.service` 和 `config/outdoor_agent_service.conf`。unit 以 `Type=simple` 托管 headless live-source Runtime，依赖 ICM20608 loader，在 `/run/outdoor-agent` 发布 JSON/socket，并限制失败重启、可写目录、地址族和可访问设备。`verify_runtime_supervision*.ps1` 覆盖当前契约及四个不安全变体；部署默认只安装、不 enable/start，真实 MP157 已完成 enable/disable、start/stop/restart、SIGTERM 和 SIGKILL 自动恢复验收。
 
 Stage 2.3 新增 `include/agent/`、`src/agent/` 和 `outdoor_agent_terminal`。`LocalAgentService` 校验 schema v1 与固定字节上限，通过 `IAgentBackend` 调用当前唯一的 `mock_no_inference`，并序列化 completed/rejected/failed 响应；terminal 默认独立运行，只有显式 `--status-socket` 才读取只读 Runtime context。该目录没有真实模型 runtime、网络 daemon、对话历史或任务执行。
 
-Stage 2.4 新增 `run_stage2_board_acceptance.sh` 与配套 PowerShell contract/negative tests。脚本固定 unit/安装路径，只有 root 显式传入 `--confirm` 才保存初始 active/enabled 状态并进入 socket self-test、权限/重复查询、Agent context、SIGTERM 和 SIGKILL 自动恢复验收；EXIT/INT/TERM 收尾验证恢复初始状态。部署增加 `/opt/outdoor-agent/tests/unix_status_service_tests`，用临时 socket 隔离验证 stale/active 冲突，不启动第二个传感器 Runtime。本轮未执行该板端入口。
+Stage 2.4 新增 `run_stage2_board_acceptance.sh` 与配套 PowerShell contract/negative tests。脚本固定 unit/安装路径，只有 root 显式传入 `--confirm` 才保存初始 active/enabled 状态并进入 socket self-test、权限/重复查询、Agent context、SIGTERM 和 SIGKILL 自动恢复验收；EXIT/INT/TERM 收尾验证恢复初始状态。部署增加 `/opt/outdoor-agent/tests/unix_status_service_tests`，用临时 socket 隔离验证 stale/active 冲突，不启动第二个传感器 Runtime。2026-07-21 真实板端入口全部通过并恢复初始 inactive/disabled 状态。
 
 F407 当前还通过 `sensor_magnetometer` 帧上报 MMC5603 三轴磁场，MP157 Runtime 将其解析为独立 `magnetometer` 状态。`include/navigation/compass_estimator.h` 与 `src/navigation/compass_estimator.cpp` 再组合时间接近的 ICM42688 加速度，执行硬铁、3×3 软铁/安装矩阵、倾斜补偿和磁偏角修正，输出独立 `compass` 状态；默认系数只标记为 `uncalibrated`，真实板标定待完成。
 

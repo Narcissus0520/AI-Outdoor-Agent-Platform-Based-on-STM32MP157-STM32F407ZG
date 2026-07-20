@@ -358,10 +358,19 @@ run_acceptance()
     record_pass "unix_status_service_self_test stale_socket=true active_collision=true query=true unlink=true"
 
     restoration_required=1
-    if ! systemctl reset-failed "$service_name" >/dev/null 2>&1 ||
-       ! systemctl start "$service_name" >/dev/null 2>&1 ||
-       ! wait_for_active || ! wait_for_socket; then
-        record_fail "service_start_or_socket timeout_seconds=$wait_seconds"
+    systemctl reset-failed "$service_name" >/dev/null 2>&1 || true
+    if ! systemctl start "$service_name" > "$report_root/service_start.txt" 2>&1; then
+        record_fail "service_start log=$report_root/service_start.txt"
+        return 1
+    fi
+    if ! wait_for_active; then
+        systemctl show "$service_name" > "$report_root/service_start_state.txt" 2>&1 || true
+        record_fail "service_active timeout_seconds=$wait_seconds state=$report_root/service_start_state.txt"
+        return 1
+    fi
+    if ! wait_for_socket; then
+        systemctl show "$service_name" > "$report_root/service_socket_state.txt" 2>&1 || true
+        record_fail "service_socket timeout_seconds=$wait_seconds path=$status_socket state=$report_root/service_socket_state.txt"
         return 1
     fi
     first_pid="$(service_main_pid)"

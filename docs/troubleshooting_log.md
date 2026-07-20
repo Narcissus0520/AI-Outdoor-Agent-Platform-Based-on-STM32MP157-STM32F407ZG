@@ -77,6 +77,13 @@
 | TRB-20260721-038 | 2026-07-21 | Stage 2.3 Verification | 提交前语法检查引用不存在的 verifier 文件名 | 已关闭 | A | [记录](#trb-20260721-038-提交前语法检查引用不存在的-verifier-文件名) |
 | TRB-20260721-039 | 2026-07-21 | GitHub PR Audit | 当前 `gh pr diff` 不支持 `--stat` 参数 | 已关闭 | A | [记录](#trb-20260721-039-当前-gh-pr-diff-不支持---stat-参数) |
 | TRB-20260721-040 | 2026-07-21 | Stage 2.4 Build Audit | 递归扫描整盘查找交叉编译器导致探测超时 | 已关闭 | A | [记录](#trb-20260721-040-递归扫描整盘查找交叉编译器导致探测超时) |
+| TRB-20260721-041 | 2026-07-21 | MP157 Board Time | 板端系统时间停留在 2020-02-07，验收日志时间不可信 | 已恢复，根因未完全确认 | A | [记录](#trb-20260721-041-板端系统时间停留在-2020-02-07) |
+| TRB-20260721-042 | 2026-07-21 | MP157 Deployment | Stage 2 文件增多后单条权限命令被串口 console 截断 | 已关闭 | A | [记录](#trb-20260721-042-stage-2-文件增多后单条权限命令被串口-console-截断) |
+| TRB-20260721-043 | 2026-07-21 | MP157 Board Test Harness | 部署后状态查询再次触发 `systemctl` 串口分页阻塞 | 已关闭 | A | [记录](#trb-20260721-043-部署后-systemctl-串口分页再次阻塞) |
+| TRB-20260721-044 | 2026-07-21 | MP157 Runtime Unit | 复查误用旧 unit 名导致把正确部署误判为 `not-found` | 已关闭 | A | [记录](#trb-20260721-044-runtime-unit-状态在分页恢复后变为-not-found) |
+| TRB-20260721-045 | 2026-07-21 | MP157 Board Test Harness | Stage 2 启动命令在发送前被 PowerShell 嵌套引号解析拒绝 | 已关闭 | A | [记录](#trb-20260721-045-stage-2-启动命令在发送前解析失败) |
+| TRB-20260721-046 | 2026-07-21 | MP157 Runtime Service | Stage 2 验收把未加载 unit 的 benign `reset-failed` 误判为启动失败 | 已关闭 | A | [记录](#trb-20260721-046-runtime-启动或-socket-就绪超时) |
+| TRB-20260721-047 | 2026-07-21 | PowerShell Parser Check | 语法检查包装命令中的 `"$p:"` 被误解析为非法变量引用 | 已关闭 | A | [记录](#trb-20260721-047-powershell-语法检查包装命令变量引用失败) |
 
 ## 问题详细复盘
 
@@ -264,7 +271,7 @@
 
 | 字段 | 记录 |
 | --- | --- |
-| 状态 | 已关闭 |
+| 状态 | 已恢复，根因未完全确认 |
 | 问题现象 | 新增 `history_recorder_tests.cpp` 后，MSVC 报错 `C2039: "accelZG": 不是 "outdoor::protocol::ImuSample" 的成员`，构建在该测试目标处失败。 |
 | 影响范围 | 仅新增 History Recorder 单元测试无法编译；`outdoor_core` 库和 Runtime 主程序已完成编译链接。 |
 | 复现步骤 | 在 `mp157/outdoor-core-service` 执行 `cmake --build build --config Debug`。 |
@@ -557,7 +564,7 @@
 
 | 字段 | 记录 |
 | --- | --- |
-| 状态 | 分析中 |
+| 状态 | 已恢复，根因未完全确认 |
 | 首次发现时间 | 2026-07-19；UART4 diagnostics 镜像首次 30 秒联合测试 |
 | 模块与版本 | 首轮 F407 19396 B diagnostics 镜像 SHA256 `660fedee...5723`；MMC/provider 修复基线 19356 B、SHA256 `d220cbc7...ad56`；当前 schema 1 镜像 19376 B、SHA256 `365fb9c3...129c`；首轮证据使用的 MP157 Runtime SHA256 `5e8e197c...56f7`，当前为 `47c4bcc9...b739`；证据目录 `/run/media/mmcblk1p1/outdoor-agent-diag30-9B4FM2` |
 | 环境与前提 | 新版 8 秒预检通过，F407 `0x01A9`、四类数据、diagnostics、ping ACK、GNSS 和 Board IMU 均 seen；COM6 在测试期间保持关闭。 |
@@ -970,6 +977,210 @@
 | 2 | 读取已确认 ARM 构建树的 CMake cache | CMake 必须持久记录实际编译器和生成器 | 精确返回编译器、Ninja 与 Release 配置 | 直接复用该构建树进行回归 | A |
 
 面试讲述要点：环境定位优先读取构建系统已经固化的事实，而不是扫描整台机器；超时后缩小故障域到单个 CMake cache，既更快也能证明工具链与目标构建的真实关联。
+
+### TRB-20260721-041: 板端系统时间停留在 2020-02-07
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已恢复，根因未完全确认 |
+| 首次发现时间 | 2026-07-21，Stage 2 板端验收只读基线 |
+| 模块与版本 | STM32MP157 Linux 5.4.31；COM9 root console；`main` a8b953b |
+| 环境与前提 | MP157、F407 和 GNSS 已由用户确认上电，COM3/COM9 空闲；仅执行 `id`、`uname`、`date`、设备节点和 systemd 状态读取。 |
+| 问题现象 | 主机当前日期为 2026-07-21，但板端 `date` 输出 `Fri 07 Feb 2020 11:51:26 PM CST`。 |
+| 影响范围 | 不影响串口和设备节点枚举，但 systemd journal、验收 report 和问题时间线会带错误时间，不能直接作为可信时序证据。 |
+| 复现步骤 | 通过 COM9 root console 执行 `date`。 |
+| 预期结果 | 板端时间与当前北京时间接近。 |
+| 实际结果 | 板端时间落后约六年。 |
+| 根因结论 | 根因未完全确认；当前证据只说明本次启动没有获得可信 RTC/NTP 时间，尚未区分 RTC 缺失、RTC 未保存或网络校时不可用。 |
+| 最终方案 | 在本轮验收开始前用主机当前北京时间设置 MP157 会话时钟并立即回读；不把临时时钟同步写成 RTC/NTP 永久修复。 |
+| 验证结果 | 主机同步目标为 `2026-07-21 06:59:25 CST`；板端 `date -s` 返回同一时间，紧接着回读 `BOARD_AFTER=2026-07-21 06:59:25 CST`，命令返回 0。本轮新证据可使用该会话时钟。 |
+| 剩余风险 | 即使会话时钟恢复，后续整板断电/重启仍可能回到错误时间；需要在后续启动链路单独验证 RTC/NTP 持久性。 |
+| 证据与关联资料 | COM9 基线原始输出；本记录。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 读取板端身份、内核和时间 | Stage 2 验收前先建立只读环境基线 | root/设备节点正常，时间为 2020-02-07 | 先同步会话时钟，再生成新验收证据 | A |
+| 2 | 用主机北京时间执行 `date -s` 并立即回读 | 先恢复本轮日志的时间可信度，不推断持久机制 | 设置和回读均为 2026-07-21 06:59:25 CST，返回 0 | 本轮恢复；RTC/NTP 根因保留后续验证 | A |
+
+面试讲述要点：验收前先检查时间基线，避免功能通过但日志时序不可采信；会话校时只能恢复本轮证据质量，不能冒充 RTC/NTP 根因已修复。
+
+### TRB-20260721-042: Stage 2 文件增多后单条权限命令被串口 console 截断
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21 07:01 CST，Stage 2 首次真实部署 |
+| 模块与版本 | `scripts/deploy_mp157_runtime.ps1`；MP157 BusyBox shell；`main` a8b953b |
+| 环境与前提 | COM9 root console；19 个 Stage 2 文件已逐个通过 XMODEM-CRC 上传；部署未请求 enable/start Runtime。关联历史问题 TRB-20260719-013。 |
+| 问题现象 | 所有上传均成功后，部署把 19 条 `chmod` 用分号拼成一行发送；板端回显在 `mcu_mock_frames.txt; chmod` 处截断，执行裸 `chmod` 并报 `missing operand`，主机等待完成 marker 25 秒后超时。 |
+| 影响范围 | 文件内容已上传，但权限、unit 安装/loader 重启、SHA256 和语法/状态验收未完整执行；Runtime unit 尚未启动，不能把部署记为通过。 |
+| 复现步骤 | 使用当前 Stage 2 部署清单执行 `deploy_mp157_runtime.ps1 -PortName COM9`，在全部 XMODEM 上传后观察合并的 mode command。 |
+| 预期结果 | 所有权限命令完整执行并返回 `__DEPLOY_RC_0__`。 |
+| 实际结果 | 串口接收的命令尾部缺失，板端 `chmod: missing operand`，没有完成 marker。 |
+| 根因结论 | 与 TRB-20260719-013 同类：交互 console 对超长单行接收不可靠。Stage 2 新增 terminal、socket self-test、service config、unit 和验收脚本后，原本未设上限的 `-join '; '` mode command 超过可用行边界。回显截断位置和裸 `chmod` 是直接证据。 |
+| 最终方案 | 新增纯函数 `Split-BoardCommandBatches`，默认把命令体限制为 600 字符并保持顺序；mode、service、逐文件 SHA256 和 syntax/state 检查全部通过 `Invoke-BoardCommandBatches` 执行，单条命令超限或空命令在主机 fail closed。 |
+| 验证结果 | 主机分批测试覆盖多批顺序/长度、恰好上限、空清单、空命令和单条超限；完整 Runtime verifier 与 acceptance negative tests 通过。第二次真实 COM9 部署在 118.4 秒内上传 19 个文件，权限、loader/unit、19 个 SHA256 和 shell/systemd/device 检查全部通过，最终输出 `deployment=PASSED ... runtime_enabled=False runtime_started=False`。 |
+| 剩余风险 | 本问题已关闭。600 字符是保守 host contract，不代表精确测得 console 极限；未来新增更长的单条命令会在发送前被明确拒绝，需要改为板端版本化脚本。 |
+| 证据与关联资料 | 19 个 `Uploaded ... using XMODEM-CRC`；板端 `chmod: missing operand`；主机 `Board command timed out`；TRB-20260719-013。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 用 Stage 2 完整清单执行部署 | 本机 verifiers、ARM 构建和 COM9 基线均通过 | 19 个文件上传成功，首个合并权限命令截断 | 故障在上传后的长命令阶段 | A |
+| 2 | 对照 TRB-20260719-013 与当前回显 | 两次均为交互 console 长单行缺失尾部 | 当前回显在最后若干 mode command 前截断并形成裸 `chmod` | 复用“版本化短命令/有界批次”原则修复 | A |
+| 3 | 增加分批 helper 和边界测试 | 所有部署后阶段都存在清单增长风险 | 首轮测试发现 mandatory 参数在函数前拒绝空数组 | 加 `AllowEmptyCollection`，让空清单语义由 helper 测试 | A |
+| 4 | 重跑空命令负向测试 | 需要 helper 自己统一拒绝空项 | 参数绑定先拒绝空字符串，异常不是约定错误 | 加 `AllowEmptyString`，内部以稳定错误 fail closed | A |
+| 5 | 运行完整主机回归 | 防止分批逻辑破坏部署/acceptance verifier | batching、supervision、acceptance、Runtime verifier 和 parser 全部通过 | 进入真实重部署 | A |
+| 6 | 重新执行 COM9 完整部署 | 必须覆盖真实 console、所有批次和逐文件 hash | 19 个文件与 19 个 SHA256 全部通过，最终 deployment PASSED，Runtime 未 enable/start | 根因、修复和板端验证闭环 | A |
+
+面试讲述要点：文件传输成功不等于部署完成；通过 marker 缺失、截断回显和裸命令错误把故障域缩小到串口行长度，再将所有部署后命令统一纳入有界批处理，而不是只缩短当前一条命令。
+
+### TRB-20260721-043: 部署后 `systemctl` 串口分页再次阻塞
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21 07:08 CST，Stage 2 重部署后的只读状态确认 |
+| 模块与版本 | COM9 root console；STM32MP157 Linux 5.4.31；`main` a8b953b |
+| 环境与前提 | Stage 2 重部署已通过，Runtime 未 enable/start；ICM loader 已 active/enabled；用户确认 MP157、F407、GNSS 保持上电。关联历史问题 TRB-20260719-017。 |
+| 问题现象 | 串联执行 `systemctl show outdoor-core-runtime.service` 与后续状态 marker 时，输出停在 `standard input` 分页界面，marker 未出现，主机等待超时。 |
+| 影响范围 | 只阻塞 COM9 诊断输入；已返回的只读状态显示 Runtime `inactive/disabled`、`MainPID=0`、`NRestarts=0`，没有启动 Runtime，也没有改变硬件或服务状态。 |
+| 复现步骤 | 在交互 COM9 TTY 上直接执行未带 `--no-pager` 的 `systemctl show`，并在同一命令行追加 marker。 |
+| 预期结果 | 状态完整输出，后续 marker 返回。 |
+| 实际结果 | 状态字段已返回，但 pager 占有输入，marker 未执行，主机超时。 |
+| 根因结论 | 与 TRB-20260719-017 同类：直接交互 TTY 查询遗漏 `SYSTEMD_PAGER=cat`/`--no-pager`，systemd 启动 pager 并改变后续输入消费者。当前 `standard input` 画面和 marker 缺失是直接证据。 |
+| 最终方案 | 发送 ESC、`q`、Ctrl-C 和回车退出可能存在的 pager 子提示与 pager 本体；恢复 shell 后以 `SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 systemctl --no-pager ...` 重查并取得独立 marker。 |
+| 验证结果 | 恢复动作立即返回两次 root prompt；无分页复查完整返回状态字段、`__PAGER_RECOVERED__` 和新 prompt，1.3 秒内结束，不再超时。复查同时暴露 Runtime unit 变为 `not-found` 的独立问题，转入 TRB-20260721-044。 |
+| 剩余风险 | 分页阻塞本身已关闭；当前直接串口诊断仍依赖调用方显式禁用 pager，后续应把无分页环境固化到统一板端命令执行入口。 |
+| 证据与关联资料 | COM9 输出中的 `standard input`、marker 超时；TRB-20260719-017。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 部署后只读确认 Runtime/ICM systemd 状态 | 验收前必须确认初始 inactive/disabled 不变量 | Runtime/ICM 关键字段已返回，但输出进入 pager，结束 marker 缺失 | 服务初始状态满足预期；先恢复 console 再执行自动验收 | A |
+| 2 | 发送 pager 恢复控制序列并使用无分页 systemctl 重查 | TRB-20260719-017 已验证的恢复路径 | root prompt、完整字段、独立 marker 和新 prompt 均返回 | pager 已退出；unit 状态漂移另立 TRB-20260721-044 | A |
+
+面试讲述要点：同类故障复发时保留新证据而不覆盖旧记录；先确认分页只影响诊断输入，再退出 pager、显式禁用分页并用 marker 证明 shell 真正恢复。
+
+### TRB-20260721-044: Runtime unit 状态在分页恢复后变为 `not-found`
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21 07:09 CST，TRB-20260721-043 分页恢复后的无分页复查 |
+| 模块与版本 | COM9 root console；`outdoor-core-runtime.service`；`main` a8b953b |
+| 环境与前提 | Stage 2 第二次部署输出通过且部署后首轮状态显示 unit `LoadState=loaded`；Runtime 始终未 enable/start。分页恢复动作只发送 ESC、`q`、Ctrl-C、回车。 |
+| 问题现象 | 分页恢复后的无分页重查错误查询 `outdoor-core-runtime.service`，返回 `Failed to get unit file state ... No such file or directory`、`LoadState=not-found`；此前部署查询的实际 unit 是 `outdoor-agent-runtime.service`。 |
+| 影响范围 | Stage 2 自动验收不能启动，必须先确认 unit 文件和 systemd manager 状态；Runtime `MainPID=0`，当前没有硬件访问或服务运行。 |
+| 复现步骤 | 对同一板端会话先记录部署后 systemd 字段，退出 pager 后再以 `SYSTEMD_PAGER=cat ... --no-pager` 查询同一 unit。 |
+| 预期结果 | unit 继续为 loaded/inactive/disabled。 |
+| 实际结果 | unit 变为 not-found/inactive，MainPID 仍为 0。 |
+| 根因结论 | 诊断命令误用了不存在的旧/错误 unit 名 `outdoor-core-runtime.service`；仓库部署脚本、板端验收脚本和实际文件统一使用 `outdoor-agent-runtime.service`。`/proc/uptime`、文件列表和正确 unit 回读排除了隐式重启与部署文件丢失。 |
+| 最终方案 | 以部署清单为唯一名称来源，查询正确的 `outdoor-agent-runtime.service` 和 `outdoor-agent-icm20608.service`，并继续显式禁用 pager。 |
+| 验证结果 | 板端 uptime 为 846.73 秒、系统时间仍为 2026-07-21，`/opt` 与根文件系统同属持续可写 ext4；正确 unit、ICM unit 和 Runtime 配置文件均存在。正确 Runtime 回读为 `loaded/inactive/dead/disabled`、`MainPID=0`、`NRestarts=0`，ICM loader 为 `loaded/active/exited/enabled`，独立 `__UNIT_VERIFIED__` marker 返回。 |
+| 剩余风险 | 本次误判已关闭；后续人工诊断应从脚本/manifest 复制 unit 名，避免凭记忆输入相近名称。 |
+| 证据与关联资料 | `scripts/deploy_mp157_runtime.ps1` 的远端 unit 清单；板端 uptime、`ls -l`、systemd 正确名称回读和 `__UNIT_VERIFIED__` marker。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 无分页重查 Runtime unit | 证明 pager 已恢复并确认验收初态 | unit 从 loaded 变为 not-found，Runtime 未运行 | 先只读核对启动时间、挂载和文件，再考虑恢复动作 | A |
+| 2 | 读取 uptime、挂载和部署文件 | 区分隐式重启、易失挂载与文件丢失 | uptime 连续、根文件系统为 ext4，Runtime 二进制与验收脚本存在；按误用名称查找 unit/config 为空 | 部署并未整体消失，回查仓库的真实远端名称 | A |
+| 3 | 从部署脚本提取 unit/config 名并按正确名称重查 | manifest 是部署目标的事实来源 | 两个 unit 和配置文件均存在；Runtime loaded/inactive/disabled，ICM loaded/active/enabled | 确认为诊断名称错误，关闭问题并进入验收 | A |
+
+面试讲述要点：状态查询前后不一致时不直接启动服务；先以 PID 证明没有误触硬件，再从启动时间、文件存在性和 systemd manager 三层缩小故障域，最终以部署 manifest 纠正相似 unit 名导致的人为误判。
+
+### TRB-20260721-045: Stage 2 启动命令在发送前解析失败
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2 自动验收首次启动尝试 |
+| 模块与版本 | Windows PowerShell 串口一次性执行器；COM9；`run_stage2_board_acceptance.sh` |
+| 环境与前提 | Runtime unit 初态已确认 loaded/inactive/disabled；用户保持设备与串口不动。 |
+| 问题现象 | 用 PowerShell 双引号构造含板端 `"$stage2_rc"` 的命令字符串时，主机 parser 报 `Unexpected token '`$stage2_rc\""'` 并立即返回 1。 |
+| 影响范围 | 命令在创建/打开 SerialPort 之前解析失败，未向 COM9 发送任何字节，板端验收未启动、Runtime 状态未改变。 |
+| 复现步骤 | 在 PowerShell `-Command` 中嵌套双引号、反斜杠和反引号构造板端 rc marker。 |
+| 预期结果 | 主机打开 COM9 并发送短命令。 |
+| 实际结果 | PowerShell 0.2 秒内 parser error，SerialPort 语句未执行。 |
+| 根因结论 | PowerShell 不使用反斜杠转义双引号；本地 shell、JavaScript 工具参数和板端 shell 三层引号组合产生非法 PowerShell token。 |
+| 最终方案 | 改用 PowerShell 单引号字面量，并移除板端变量周围不必要的双引号；命令主体保持为短单行。 |
+| 验证结果 | 修正后 COM9 明确回显启动命令，Stage 2 脚本完成其自检、启动尝试和初态恢复，返回 `__STAGE2_RC_1__` 独立 marker。非零 rc 属于板端 Runtime 启动的独立问题 TRB-20260721-046，不再是主机 parser/发送问题。 |
+| 剩余风险 | 引号解析问题已关闭；板端验收失败由 TRB-20260721-046 继续处理。 |
+| 证据与关联资料 | PowerShell `ParserError`、`UnexpectedToken`；0.2 秒失败时长。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 用双引号插值字符串构造板端 rc marker | 希望保留 `$?` 与 `$stage2_rc` 给板端 shell | 本地主机 parser 在执行前失败 | 改为单引号字面量，减少引号层级 | A |
+| 2 | 用单引号字面量重发短命令 | PowerShell 不插值 `$?`/`$stage2_rc`，板端 shell 可自行展开 | 命令回显、验收脚本输出和独立 rc marker 全部返回 | 主机发送链路恢复，关闭本问题 | A |
+
+面试讲述要点：串口脚本失败先区分“主机未发送”和“板端执行失败”；parser 在端口创建前退出可证明硬件状态未改变，修复重点应放在分层引用而不是板端服务。
+
+### TRB-20260721-046: Runtime 启动或 socket 就绪超时
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2 首次真实自动验收 |
+| 模块与版本 | `run_stage2_board_acceptance.sh`；`outdoor-agent-runtime.service`；Stage 2 ARM 部署产物 |
+| 环境与前提 | MP157 Linux 已启动，Runtime unit loaded/inactive/disabled，ICM loader active/enabled；四个 ARM 可执行文件、unit 语法和 Unix Socket 自测均先通过。 |
+| 问题现象 | 验收执行 `systemctl start` 后，20 秒内未同时满足服务 active 与 Runtime socket 就绪，报 `FAIL service_start_or_socket timeout_seconds=20`。 |
+| 影响范围 | 后续三次状态查询、Agent mock、受控停止和 SIGKILL 恢复均未执行；验收脚本已恢复初始 inactive/disabled 状态，没有把失败服务留在后台。 |
+| 复现步骤 | 以 root 执行 `/opt/outdoor-agent/scripts/run_stage2_board_acceptance.sh --confirm`。 |
+| 预期结果 | 服务启动并创建配置指定的 Unix socket，进入完整 Stage 2 验收。 |
+| 实际结果 | 可执行文件/unit/self-test 前置项通过；启动就绪超时；报告位于 `/tmp/outdoor-agent-stage2-acceptance-NT4eGy/acceptance_report.txt`，脚本 rc=1。 |
+| 根因结论 | unit 初始为 disabled/inactive，systemd 可将其从 manager 内存中回收；此时 `systemctl reset-failed outdoor-agent-runtime.service` 返回非零并提示 `Unit ... not loaded`，但紧接着 `systemctl start` 可成功加载并启动。验收脚本把 `reset-failed`、start、active 和 socket 四步用短路 OR 合并，导致 benign reset 失败后根本没有执行 start，并用通用超时信息掩盖真实阶段。4.4 秒手工诊断中的 `reset-failed` 错误、`START_RC=0` 和两秒后 `active/running MainPID=1685` 构成直接证据。 |
+| 最终方案 | 将启动前 `reset-failed` 改为 best effort；把 start、active 等待和 socket 等待拆为独立失败分支，并分别保存 `service_start.txt` 或 systemd state 快照。contract verifier 新增约束，禁止再次把 `reset-failed` 作为 fatal startup gate。 |
+| 验证结果 | 本地 acceptance contract verifier 与 Git Bash `sh -n` 通过；修正版 16113 字节脚本经 XMODEM-CRC 增量部署，板端/本地 SHA256 同为 `2f7013c9...c277a0`，板端 `sh -n` 通过。第二轮真实验收 12.6 秒通过：三次 socket 查询、Agent mock 双路径、受控停止/重启和 SIGKILL 恢复全部 PASS；PID `2086 -> 2177 -> 2225`，`NRestarts 0 -> 1`。最终 Runtime 回读为 loaded/inactive/dead/disabled、MainPID=0，socket 不存在；report SHA256 `d972d97d...792786`。 |
+| 剩余风险 | 本问题已关闭。板端证据位于 `/tmp`，断电会丢失；关键结果和哈希已同步到仓库文档，后续正式发布可把报告复制到持久介质。 |
+| 证据与关联资料 | 首轮 `/tmp/outdoor-agent-stage2-acceptance-NT4eGy/`；通过报告 `/tmp/outdoor-agent-stage2-acceptance-IIppv5/acceptance_report.txt`；COM9 启动诊断、增量部署哈希和最终状态回读。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 运行完整 Stage 2 板端验收 | 软件回归、ARM 部署和 systemd 初态均通过 | 前置与 socket 自测通过，服务启动/socket 等待 20 秒超时，初态恢复通过 | 读取持久证据，区分进程退出、重启循环和 socket 路径不一致 | A |
+| 2 | 读取 report、journal 和最终 systemd 状态 | 验收脚本在 EXIT trap 中保存证据并恢复状态 | report 仅有通用启动失败；journal 无条目；最终 Result=success、MainPID=0 | 更像 start 前置分支短路，而不是 Runtime 进程退出 | A |
+| 3 | 显式执行 reset-failed、start、两秒状态回读和恢复 | 拆分合并条件以观察每步返回 | reset-failed 报 unit not loaded；start rc=0，Runtime active/running、PID=1685；随后停止/禁用 | 确认 benign reset 返回被误当 fatal gate | A |
+| 4 | 拆分启动阶段并补 contract 回归 | 既修复误判，也提高下一次失败的可诊断性 | contract verifier、shell 语法、本地/板端脚本 hash 与板端语法均通过 | 进入完整复测 | A |
+| 5 | 第二轮真实完整验收并回读最终状态 | 必须覆盖第一次未执行的全部 Stage 2 路径 | 所有检查通过，失败重启计数增加，初态恢复且 socket 不存在 | 根因、修复与真实板端验证闭环 | A |
+
+面试讲述要点：自动验收把“socket 实现自测”和“真实服务启动”分开，因此失败后可把故障域缩小到 systemd 启动配置、Runtime 进程或部署环境，并由初态恢复避免污染下一轮排查。
+
+### TRB-20260721-047: PowerShell 语法检查包装命令变量引用失败
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，合入前统一 parser/shell/diff 检查 |
+| 模块与版本 | Windows PowerShell 一次性检查包装命令；仓库脚本未执行 |
+| 环境与前提 | CMake/CTest、完整 Runtime verifier 和真实 Stage 2 板端验收均已通过；本命令只准备解析五个 `.ps1` 文件。 |
+| 问题现象 | 包装命令在错误输出分支使用 `"$p: $($_.Message)"`，PowerShell parser 报 `Variable reference is not valid. ':' was not followed by a valid variable name character`。 |
+| 影响范围 | 外层命令在读取目标脚本前即失败，未执行 parser、`sh -n` 或 `git diff --check`；不修改仓库、串口或板端状态。 |
+| 复现步骤 | 在 PowerShell 双引号字符串中紧跟变量名写冒号：`"$p: ..."`。 |
+| 预期结果 | 冒号作为普通文本出现在路径后。 |
+| 实际结果 | parser 将 `$p:` 视为作用域/drive 风格变量 token 并拒绝。 |
+| 根因结论 | PowerShell 插值字符串中变量名与冒号边界不明确；应使用 `${p}` 显式定界。 |
+| 最终方案 | 将模板改为 `"${p}: ..."`，以大括号显式终止变量名，再保持原五脚本 parser、shell 语法和 diff 检查顺序不变。 |
+| 验证结果 | 修正后的同一包装命令在 0.4 秒内返回 0；五个 PowerShell 文件 parser、Git Bash `sh -n` 和 `git diff --check` 全部通过，输出 `Parser, shell syntax, and diff checks passed.`。 |
+| 剩余风险 | 本次包装命令错误已关闭；后续插值变量紧邻 `:` 时继续使用 `${name}`。 |
+| 证据与关联资料 | 主机 `ParserError` 与 `InvalidVariableReferenceWithDrive`。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 一次性解析五个 PowerShell 文件并串联 shell/diff 检查 | 合入前统一门槛 | 外层包装命令 0.2 秒 parser error | 用 `${p}` 定界后重跑，目标脚本尚未被判定 | A |
+| 2 | 用 `${p}` 重跑完全相同的检查目标 | 只修改外层错误打印语法 | parser、`sh -n` 和 diff check 全部通过 | 包装命令与目标脚本均验证，关闭问题 | A |
+
+面试讲述要点：检查工具自身也属于测试基础设施；根据错误发生在外层 parser 还是目标文件解析阶段划分故障域，并用明确的变量边界消除 PowerShell 语法歧义。
 
 ## 新问题记录模板
 
