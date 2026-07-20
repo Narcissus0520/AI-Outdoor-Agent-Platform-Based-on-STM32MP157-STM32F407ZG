@@ -1,0 +1,11 @@
+# Valid Stage 1 Linux-side MCU mock frames for focused service validation.
+# Format: A5 5A version type seq_le len_le payload crc16_modbus_le
+
+# heartbeat: uptime_ms=1000, status_flags=0x0001
+A5 5A 01 01 01 00 06 00 E8 03 00 00 01 00 1E 6A
+
+# mock sensor: uptime_ms=2000, temp=25.34C, humidity=62.3%, accel=(0.012, -0.008, 1.001)g
+A5 5A 01 10 02 00 0E 00 D0 07 00 00 E6 09 6F 02 0C 00 F8 FF E9 03 C7 3E
+
+# mock IMU: uptime_ms=4020, accel=(0.013, -0.007, 1.001)g, gyro=(1.510, -2.194, 0.324)dps, temp=25.31C
+A5 5A 01 11 04 00 18 00 B4 0F 00 00 0D 00 F9 FF E9 03 E6 05 00 00 6E F7 FF FF 44 01 00 00 E3 09 0B 3C

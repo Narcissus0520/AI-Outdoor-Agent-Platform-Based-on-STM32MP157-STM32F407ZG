@@ -11,6 +11,11 @@
 #include <string>
 #include <vector>
 
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#include <cstdlib>
+#endif
+
 namespace {
 
 void appendU16Le(std::vector<std::uint8_t>& bytes, std::uint16_t value)
@@ -49,6 +54,36 @@ std::vector<std::uint8_t> buildImuPayload()
     appendI32Le(payload, -2194);
     appendI32Le(payload, 324);
     appendI16Le(payload, 2531);
+    return payload;
+}
+
+std::vector<std::uint8_t> buildSensorHubDiagnosticsPayload(bool extended)
+{
+    std::vector<std::uint8_t> payload;
+    payload.reserve(extended ? outdoor::mcu::kSensorHubDiagnosticsPayloadSize
+                             : outdoor::mcu::kSensorHubDiagnosticsLegacyPayloadSize);
+    appendU32Le(payload, 5000U);
+    appendU32Le(payload, 12U);
+    appendU32Le(payload, 2U);
+    appendU32Le(payload, 0x20U);
+    appendU32Le(payload, 3U);
+    appendU32Le(payload, 4U);
+    appendU32Le(payload, 5U);
+    appendU32Le(payload, 6U);
+    appendU32Le(payload, 7U);
+    appendU16Le(payload, 128U);
+    payload.push_back(0x68U);
+    payload.push_back(0x30U);
+    payload.push_back(1U);
+    payload.push_back(3U);
+    payload.push_back(0U);
+    payload.push_back(extended ? outdoor::mcu::kSensorHubDiagnosticsExtensionVersion : 0U);
+    if (extended) {
+        appendU32Le(payload, 9U);
+        assert(payload.size() == outdoor::mcu::kSensorHubDiagnosticsPayloadSize);
+    } else {
+        assert(payload.size() == outdoor::mcu::kSensorHubDiagnosticsLegacyPayloadSize);
+    }
     return payload;
 }
 
@@ -108,6 +143,11 @@ std::vector<std::uint8_t> buildFrame(outdoor::mcu::McuFrameType type,
 
 int main()
 {
+#ifdef _MSC_VER
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
     const std::vector<std::uint8_t> crcVector {
         '1', '2', '3', '4', '5', '6', '7', '8', '9'
     };
@@ -140,6 +180,51 @@ int main()
     assert(status.lastSequence == 9);
     assert(status.lastFrameType == "sensor_imu");
     assert(status.imuSample.gyroYMdps == -2194);
+
+    const auto diagnosticsFrame = buildFrame(
+        outdoor::mcu::McuFrameType::SensorHubDiagnostics,
+        10U,
+        buildSensorHubDiagnosticsPayload(true));
+    assert(frameParser.parseFrame(diagnosticsFrame, frame, error));
+    assert(frameParser.applyFrame(frame, status, error));
+    assert(status.diagnostics.seen);
+    assert(status.diagnostics.schemaVersion == outdoor::mcu::kSensorHubDiagnosticsExtensionVersion);
+    assert(status.diagnostics.uptimeMs == 5000U);
+    assert(status.diagnostics.i2cRecoveryCount == 12U);
+    assert(status.diagnostics.i2cTransactionFailureCount == 2U);
+    assert(status.diagnostics.i2cLastHalError == 0x20U);
+    assert(status.diagnostics.fifoOverflowCount == 3U);
+    assert(status.diagnostics.fifoMalformedPacketCount == 4U);
+    assert(status.diagnostics.fifoEmptyEventCount == 5U);
+    assert(status.diagnostics.fifoDrainStallCount == 6U);
+    assert(status.diagnostics.fifoSkippedPacketCount == 7U);
+    assert(status.diagnostics.i2cLastLength == 128U);
+    assert(status.diagnostics.i2cLastDeviceAddress == 0x68U);
+    assert(status.diagnostics.i2cLastRegisterAddress == 0x30U);
+    assert(status.diagnostics.i2cLastOperation == 1U);
+    assert(status.diagnostics.i2cLastHalStatus == 3U);
+    assert(status.diagnostics.icm42688InitErrorStep == 0U);
+    assert(status.diagnostics.uart4RxDropCount == 9U);
+    assert(status.lastFrameType == "sensor_hub_diagnostics");
+
+    const auto legacyDiagnosticsFrame = buildFrame(
+        outdoor::mcu::McuFrameType::SensorHubDiagnostics,
+        11U,
+        buildSensorHubDiagnosticsPayload(false));
+    assert(frameParser.parseFrame(legacyDiagnosticsFrame, frame, error));
+    assert(frameParser.applyFrame(frame, status, error));
+    assert(status.diagnostics.schemaVersion == 0U);
+    assert(status.diagnostics.uart4RxDropCount == 0U);
+
+    auto unsupportedDiagnosticsPayload = buildSensorHubDiagnosticsPayload(true);
+    unsupportedDiagnosticsPayload[43] = 2U;
+    const auto unsupportedDiagnosticsFrame = buildFrame(
+        outdoor::mcu::McuFrameType::SensorHubDiagnostics,
+        12U,
+        unsupportedDiagnosticsPayload);
+    assert(frameParser.parseFrame(unsupportedDiagnosticsFrame, frame, error));
+    assert(!frameParser.applyFrame(frame, status, error));
+    assert(error == "sensor hub diagnostics extension version is unsupported");
 
     const auto magnetometerFrame = buildFrame(
         outdoor::mcu::McuFrameType::SensorMagnetometer,

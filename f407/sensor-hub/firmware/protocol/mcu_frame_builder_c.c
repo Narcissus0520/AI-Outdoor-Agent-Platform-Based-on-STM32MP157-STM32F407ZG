@@ -84,6 +84,46 @@ int mcu_build_heartbeat_frame(uint16_t sequence,
     return 0;
 }
 
+int mcu_build_sensor_hub_diagnostics_frame(
+    uint16_t sequence,
+    const mcu_sensor_hub_diagnostics_c_t* diagnostics,
+    uint8_t* out_frame,
+    size_t out_capacity,
+    size_t* out_length)
+{
+    uint8_t* payload;
+
+    if (diagnostics == 0 ||
+        begin_frame(MCU_MSG_TYPE_SENSOR_HUB_DIAGNOSTICS,
+                    sequence,
+                    MCU_SENSOR_HUB_DIAGNOSTICS_PAYLOAD_SIZE,
+                    out_frame,
+                    out_capacity) != 0) {
+        return -1;
+    }
+
+    payload = &out_frame[MCU_FRAME_HEADER_SIZE];
+    write_u32_le(&payload[0], diagnostics->uptime_ms);
+    write_u32_le(&payload[4], diagnostics->i2c_recovery_count);
+    write_u32_le(&payload[8], diagnostics->i2c_transaction_failure_count);
+    write_u32_le(&payload[12], diagnostics->i2c_last_hal_error);
+    write_u32_le(&payload[16], diagnostics->fifo_overflow_count);
+    write_u32_le(&payload[20], diagnostics->fifo_malformed_packet_count);
+    write_u32_le(&payload[24], diagnostics->fifo_empty_event_count);
+    write_u32_le(&payload[28], diagnostics->fifo_drain_stall_count);
+    write_u32_le(&payload[32], diagnostics->fifo_skipped_packet_count);
+    write_u16_le(&payload[36], diagnostics->i2c_last_length);
+    payload[38] = diagnostics->i2c_last_device_address;
+    payload[39] = diagnostics->i2c_last_register_address;
+    payload[40] = diagnostics->i2c_last_operation;
+    payload[41] = diagnostics->i2c_last_hal_status;
+    payload[42] = diagnostics->icm42688_init_error_step;
+    payload[43] = MCU_SENSOR_HUB_DIAGNOSTICS_EXTENSION_VERSION;
+    write_u32_le(&payload[44], diagnostics->uart4_rx_drop_count);
+    finish_frame(out_frame, MCU_SENSOR_HUB_DIAGNOSTICS_PAYLOAD_SIZE, out_length);
+    return 0;
+}
+
 int mcu_build_imu_frame(uint16_t sequence,
                         const imu_sample_c_t* sample,
                         uint8_t* out_frame,

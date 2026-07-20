@@ -1,0 +1,13 @@
+[Unit]
+Description=Load STM32MP157 onboard ICM20608 driver
+Requires=link-modules.service
+After=link-modules.service
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe icm20608
+ExecStart=/usr/bin/test -c /dev/icm20608
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

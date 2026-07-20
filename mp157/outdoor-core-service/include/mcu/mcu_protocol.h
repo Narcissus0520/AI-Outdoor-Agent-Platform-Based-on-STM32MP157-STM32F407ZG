@@ -19,6 +19,7 @@ constexpr std::size_t kMaxPayloadSize = outdoor::protocol::kMaxPayloadSize;
 
 enum class McuFrameType : std::uint8_t {
     Heartbeat = outdoor::protocol::MSG_TYPE_HEARTBEAT,
+    SensorHubDiagnostics = outdoor::protocol::MSG_TYPE_SENSOR_HUB_DIAGNOSTICS,
     MockSensor = outdoor::protocol::MSG_TYPE_MOCK_SENSOR,
     SensorImu = outdoor::protocol::MSG_TYPE_SENSOR_IMU,
     SensorMagnetometer = outdoor::protocol::MSG_TYPE_SENSOR_MAGNETOMETER,
@@ -28,6 +29,12 @@ enum class McuFrameType : std::uint8_t {
 };
 
 constexpr std::size_t kHeartbeatPayloadSize = 6;
+constexpr std::size_t kSensorHubDiagnosticsPayloadSize =
+    outdoor::protocol::kSensorHubDiagnosticsPayloadSize;
+constexpr std::size_t kSensorHubDiagnosticsLegacyPayloadSize =
+    outdoor::protocol::kSensorHubDiagnosticsLegacyPayloadSize;
+constexpr std::uint8_t kSensorHubDiagnosticsExtensionVersion =
+    outdoor::protocol::kSensorHubDiagnosticsExtensionVersion;
 constexpr std::size_t kMockSensorPayloadSize = 14;
 constexpr std::size_t kImuPayloadSize = outdoor::protocol::kImuPayloadSize;
 constexpr std::size_t kMagnetometerPayloadSize = outdoor::protocol::kMagnetometerPayloadSize;

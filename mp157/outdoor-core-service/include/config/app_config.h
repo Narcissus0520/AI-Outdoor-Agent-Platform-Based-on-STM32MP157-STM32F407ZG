@@ -1,6 +1,7 @@
 #pragma once
 
 #include "log/logger.h"
+#include "navigation/compass_estimator.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -20,12 +21,19 @@ struct AppConfig {
     std::uint32_t mcuSerialBaud = 115200;
     std::uint32_t mcuSerialCaptureSeconds = 5;
     std::string mcuCommand = "none";
+    std::uint32_t runtimeRunSeconds = 0;
     std::string statusOutputPath = "runtime/runtime_status.json";
     bool storageEnabled = false;
     std::string storageRootPath = "/mnt/sdcard/outdoor-agent";
     std::string storageStatusOutputPath = "status/runtime_status.json";
     std::string storageDashboardOutputPath = "dashboard/dashboard.txt";
     std::string storageLogFilePath = "logs/outdoor_core_runtime.log";
+    std::size_t storageLogMaxBytes = 1048576U;
+    std::size_t storageLogBackupCount = 3U;
+    bool historyEnabled = false;
+    std::string historyOutputPath = "data/history";
+    std::uint32_t historyFlushIntervalMs = 1000U;
+    outdoor::navigation::CompassConfig compass;
     bool boardImuEnabled = false;
     std::string boardImuSource = "char_device";
     std::string boardImuDevicePath = "/dev/icm20608";
@@ -38,6 +46,9 @@ struct AppConfig {
     std::string dashboardFramebufferDevice = "/dev/fb0";
     std::size_t dashboardRefreshCount = 1;
     std::uint32_t dashboardRefreshIntervalMs = 1000;
+    bool launcherEnabled = false;
+    std::string launcherInputDevice = "/dev/input/touchscreen0";
+    std::uint32_t launcherAutoStartSeconds = 0;
     outdoor::log::LogLevel logLevel = outdoor::log::LogLevel::Info;
 };
 

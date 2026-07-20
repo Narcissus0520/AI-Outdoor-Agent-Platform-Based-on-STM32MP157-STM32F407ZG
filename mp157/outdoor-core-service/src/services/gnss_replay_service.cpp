@@ -44,14 +44,14 @@ bool GnssReplayService::start()
     return true;
 }
 
-bool GnssReplayService::run()
+outdoor::runtime::ServicePollResult GnssReplayService::poll()
 {
     std::string line;
-    while (input_.readLine(line)) {
-        if (line.empty()) {
-            continue;
-        }
+    if (!input_.readLine(line)) {
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
 
+    if (!line.empty()) {
         outdoor::log::Logger::info("NMEA: " + line);
         status_.lastSentenceType = sentenceType(line);
 
@@ -68,7 +68,7 @@ bool GnssReplayService::run()
         }
     }
 
-    return true;
+    return outdoor::runtime::ServicePollResult::Running;
 }
 
 void GnssReplayService::stop()

@@ -4,6 +4,7 @@
 #include "log/logger.h"
 #include "mcu/mcu_command.h"
 #include "mcu/mcu_status.h"
+#include "navigation/compass_estimator.h"
 #include "runtime/runtime_manager.h"
 #include "services/dashboard_service.h"
 #include "services/gnss_replay_service.h"
@@ -14,9 +15,12 @@
 #include "sensors/board_imu_status.h"
 #include "sensors/icm20608_char_reader.h"
 #include "sensors/icm20608_iio_reader.h"
+#include "storage/history_recorder.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <csignal>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -29,6 +33,14 @@ constexpr const char* kDefaultNmeaFile = "data/nmea_sample.txt";
 constexpr const char* kDefaultMcuMockFile = "data/mcu_mock_frames.txt";
 constexpr const char* kDefaultConfigFile = "config/runtime.conf";
 constexpr const char* kDefaultStatusOutputFile = "runtime/runtime_status.json";
+constexpr std::uint16_t kCompassRequiredMcuFlags = 0x0009U;
+constexpr std::uint16_t kCompassRejectedMcuFlags = 0x5216U;
+volatile std::sig_atomic_t shutdownRequested = 0;
+
+void handleShutdownSignal(int)
+{
+    shutdownRequested = 1;
+}
 
 void printUsage(const char* programName)
 {
@@ -41,16 +53,20 @@ void printUsage(const char* programName)
               << " [--mcu-mock-input path] [--mcu-serial-device path]"
               << " [--mcu-serial-baud baud] [--mcu-serial-capture-seconds seconds]"
               << " [--mcu-command none|ping]"
+              << " [--runtime-run-seconds seconds]"
               << " [--status-output path]"
               << " [--storage] [--no-storage] [--storage-root path]"
               << " [--storage-status-output path] [--storage-dashboard-output path]"
               << " [--storage-log-file path]"
+              << " [--history] [--no-history] [--history-output path]"
               << " [--board-imu] [--board-imu-source char_device|iio|auto]"
               << " [--board-imu-device-path path] [--board-imu-iio-path path] [--board-imu-samples count]"
               << " [--dashboard-output path] [--dashboard-output-mode text|framebuffer|both]"
               << " [--dashboard-framebuffer-device path]"
               << " [--dashboard-refresh-count count] [--dashboard-refresh-interval-ms ms]"
               << " [--no-dashboard]"
+              << " [--launcher] [--no-launcher] [--launcher-input-device path|auto]"
+              << " [--launcher-auto-start-seconds seconds]"
               << " [--log-level debug|info|warn|error]\n";
 }
 
@@ -110,9 +126,13 @@ bool prepareStorage(outdoor::config::AppConfig& config,
         }
 
         const std::string logFilePath = resolveStoragePath(config.storageRootPath, config.storageLogFilePath);
-        if (!outdoor::log::Logger::setFileOutput(logFilePath, error)) {
+        if (!outdoor::log::Logger::setFileOutput(logFilePath,
+                                                 config.storageLogMaxBytes,
+                                                 config.storageLogBackupCount,
+                                                 error)) {
             return false;
         }
+        config.historyOutputPath = resolveStoragePath(config.storageRootPath, config.historyOutputPath);
     } catch (const fs::filesystem_error& exception) {
         error = exception.what();
         return false;
@@ -127,12 +147,20 @@ outdoor::runtime::RuntimeStatus buildStatus(const outdoor::runtime::RuntimeManag
                                             const std::string& storageLastError)
 {
     outdoor::runtime::RuntimeStatus status = runtime.status();
+    const outdoor::log::LoggerStatus loggerStatus = outdoor::log::Logger::status();
     status.storageEnabled = config.storageEnabled;
     status.storageRootPath = config.storageRootPath;
     status.storageStatusOutputPath = config.statusOutputPath;
     status.storageDashboardOutputPath = config.dashboardOutputPath;
     status.storageLogFilePath = outdoor::log::Logger::fileOutputPath();
-    status.storageLastError = storageLastError;
+    status.storageLogMaxBytes = config.storageLogMaxBytes;
+    status.storageLogBackupCount = config.storageLogBackupCount;
+    status.storageLogRotationFailureCount = loggerStatus.rotationFailureCount;
+    status.storageLogWriteFailureCount = loggerStatus.writeFailureCount;
+    status.storageLogLastError = loggerStatus.lastError;
+    status.historyEnabled = config.historyEnabled;
+    status.historyOutputPath = config.historyOutputPath;
+    status.storageLastError = !storageLastError.empty() ? storageLastError : loggerStatus.lastError;
     return status;
 }
 
@@ -155,6 +183,9 @@ bool parseSizeArgument(const std::string& value, std::size_t& parsed)
 
 int main(int argc, char* argv[])
 {
+    (void)std::signal(SIGINT, handleShutdownSignal);
+    (void)std::signal(SIGTERM, handleShutdownSignal);
+
     outdoor::config::AppConfig config;
     config.nmeaInputPath = kDefaultNmeaFile;
     config.mcuMockInputPath = kDefaultMcuMockFile;
@@ -172,6 +203,7 @@ int main(int argc, char* argv[])
     std::string cliMcuSerialBaud;
     std::string cliMcuSerialCaptureSeconds;
     std::string cliMcuCommand;
+    std::string cliRuntimeRunSeconds;
     std::string cliLogLevel;
     std::string cliStatusOutputPath;
     bool cliEnableStorage = false;
@@ -180,6 +212,9 @@ int main(int argc, char* argv[])
     std::string cliStorageStatusOutputPath;
     std::string cliStorageDashboardOutputPath;
     std::string cliStorageLogFilePath;
+    bool cliEnableHistory = false;
+    bool cliDisableHistory = false;
+    std::string cliHistoryOutputPath;
     bool cliEnableBoardImu = false;
     bool cliDisableBoardImu = false;
     bool cliDisableDashboard = false;
@@ -188,6 +223,10 @@ int main(int argc, char* argv[])
     std::string cliDashboardFramebufferDevice;
     std::string cliDashboardRefreshCount;
     std::string cliDashboardRefreshIntervalMs;
+    bool cliEnableLauncher = false;
+    bool cliDisableLauncher = false;
+    std::string cliLauncherInputDevice;
+    std::string cliLauncherAutoStartSeconds;
     std::string cliBoardImuSource;
     std::string cliBoardImuDevicePath;
     std::string cliBoardImuIioPath;
@@ -271,6 +310,12 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliMcuCommand = argv[++index];
+        } else if (arg == "--runtime-run-seconds") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--runtime-run-seconds requires seconds");
+                return 1;
+            }
+            cliRuntimeRunSeconds = argv[++index];
         } else if (arg == "--status-output") {
             if (index + 1 >= argc) {
                 outdoor::log::Logger::error("--status-output requires a file path");
@@ -309,6 +354,20 @@ int main(int argc, char* argv[])
                 return 1;
             }
             cliStorageLogFilePath = argv[++index];
+        } else if (arg == "--history") {
+            cliEnableHistory = true;
+            cliDisableHistory = false;
+        } else if (arg == "--no-history") {
+            cliDisableHistory = true;
+            cliEnableHistory = false;
+        } else if (arg == "--history-output") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--history-output requires a directory path");
+                return 1;
+            }
+            cliHistoryOutputPath = argv[++index];
+            cliEnableHistory = true;
+            cliDisableHistory = false;
         } else if (arg == "--board-imu") {
             cliEnableBoardImu = true;
             cliDisableBoardImu = false;
@@ -371,6 +430,24 @@ int main(int argc, char* argv[])
             cliDashboardRefreshIntervalMs = argv[++index];
         } else if (arg == "--no-dashboard") {
             cliDisableDashboard = true;
+        } else if (arg == "--launcher") {
+            cliEnableLauncher = true;
+            cliDisableLauncher = false;
+        } else if (arg == "--no-launcher") {
+            cliDisableLauncher = true;
+            cliEnableLauncher = false;
+        } else if (arg == "--launcher-input-device") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--launcher-input-device requires a device path or auto");
+                return 1;
+            }
+            cliLauncherInputDevice = argv[++index];
+        } else if (arg == "--launcher-auto-start-seconds") {
+            if (index + 1 >= argc) {
+                outdoor::log::Logger::error("--launcher-auto-start-seconds requires seconds");
+                return 1;
+            }
+            cliLauncherAutoStartSeconds = argv[++index];
         } else if (arg == "--log-level") {
             if (index + 1 >= argc) {
                 outdoor::log::Logger::error("--log-level requires a value");
@@ -469,6 +546,15 @@ int main(int argc, char* argv[])
         config.mcuCommand = cliMcuCommand;
     }
 
+    if (!cliRuntimeRunSeconds.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliRuntimeRunSeconds, parsed)) {
+            outdoor::log::Logger::error("Unsupported --runtime-run-seconds value: " + cliRuntimeRunSeconds);
+            return 1;
+        }
+        config.runtimeRunSeconds = static_cast<std::uint32_t>(parsed);
+    }
+
     if (!cliStatusOutputPath.empty()) {
         config.statusOutputPath = cliStatusOutputPath;
     }
@@ -495,6 +581,18 @@ int main(int argc, char* argv[])
 
     if (!cliStorageLogFilePath.empty()) {
         config.storageLogFilePath = cliStorageLogFilePath;
+    }
+
+    if (cliEnableHistory) {
+        config.historyEnabled = true;
+    }
+
+    if (cliDisableHistory) {
+        config.historyEnabled = false;
+    }
+
+    if (!cliHistoryOutputPath.empty()) {
+        config.historyOutputPath = cliHistoryOutputPath;
     }
 
     if (cliEnableBoardImu) {
@@ -568,6 +666,27 @@ int main(int argc, char* argv[])
         config.dashboardEnabled = false;
     }
 
+    if (cliEnableLauncher) {
+        config.launcherEnabled = true;
+    }
+
+    if (cliDisableLauncher) {
+        config.launcherEnabled = false;
+    }
+
+    if (!cliLauncherInputDevice.empty()) {
+        config.launcherInputDevice = cliLauncherInputDevice;
+    }
+
+    if (!cliLauncherAutoStartSeconds.empty()) {
+        std::size_t parsed = 0;
+        if (!parseSizeArgument(cliLauncherAutoStartSeconds, parsed)) {
+            outdoor::log::Logger::error("Unsupported --launcher-auto-start-seconds value: " + cliLauncherAutoStartSeconds);
+            return 1;
+        }
+        config.launcherAutoStartSeconds = static_cast<std::uint32_t>(parsed);
+    }
+
     if (!cliLogLevel.empty()) {
         outdoor::log::LogLevel parsedLevel {};
         if (!outdoor::log::parseLogLevel(cliLogLevel, parsedLevel)) {
@@ -575,6 +694,12 @@ int main(int argc, char* argv[])
             return 1;
         }
         config.logLevel = parsedLevel;
+    }
+
+    std::string compassConfigError;
+    if (!outdoor::navigation::validateCompassConfig(config.compass, compassConfigError)) {
+        outdoor::log::Logger::error("Invalid compass configuration: " + compassConfigError);
+        return 1;
     }
 
     outdoor::log::Logger::setMinimumLevel(config.logLevel);
@@ -591,6 +716,14 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info(std::string("Storage enabled: ") + (config.storageEnabled ? "true" : "false"));
     outdoor::log::Logger::info("Storage root path: " + config.storageRootPath);
     outdoor::log::Logger::info("Storage log file: " + outdoor::log::Logger::fileOutputPath());
+    outdoor::log::Logger::info("Storage log max bytes: " + std::to_string(config.storageLogMaxBytes));
+    outdoor::log::Logger::info("Storage log backup count: " + std::to_string(config.storageLogBackupCount));
+    outdoor::log::Logger::info(std::string("History enabled: ") + (config.historyEnabled ? "true" : "false"));
+    outdoor::log::Logger::info("History output path: " + config.historyOutputPath);
+    outdoor::log::Logger::info(std::string("Compass enabled: ")
+                               + (config.compass.enabled ? "true" : "false"));
+    outdoor::log::Logger::info(std::string("Compass calibration valid: ")
+                               + (config.compass.calibrationValid ? "true" : "false"));
     outdoor::log::Logger::info("GNSS input mode: " + config.gnssInputMode);
     outdoor::log::Logger::info("Input source: " + config.nmeaInputPath);
     outdoor::log::Logger::info("GNSS serial device: " + config.gnssSerialDevice);
@@ -602,6 +735,7 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("MCU serial baud: " + std::to_string(config.mcuSerialBaud));
     outdoor::log::Logger::info("MCU serial capture seconds: " + std::to_string(config.mcuSerialCaptureSeconds));
     outdoor::log::Logger::info("MCU command: " + config.mcuCommand);
+    outdoor::log::Logger::info("Runtime run seconds: " + std::to_string(config.runtimeRunSeconds));
     outdoor::log::Logger::info(std::string("Board IMU enabled: ") + (config.boardImuEnabled ? "true" : "false"));
     outdoor::log::Logger::info("Board IMU source: " + config.boardImuSource);
     outdoor::log::Logger::info("Board IMU character device path: " + config.boardImuDevicePath);
@@ -613,11 +747,27 @@ int main(int argc, char* argv[])
     outdoor::log::Logger::info("Dashboard framebuffer device: " + config.dashboardFramebufferDevice);
     outdoor::log::Logger::info("Dashboard refresh count: " + std::to_string(config.dashboardRefreshCount));
     outdoor::log::Logger::info("Dashboard refresh interval ms: " + std::to_string(config.dashboardRefreshIntervalMs));
+    outdoor::log::Logger::info(std::string("Launcher enabled: ") + (config.launcherEnabled ? "true" : "false"));
+    outdoor::log::Logger::info("Launcher input device: " + config.launcherInputDevice);
+    outdoor::log::Logger::info("Launcher auto-start seconds: " + std::to_string(config.launcherAutoStartSeconds));
 
     outdoor::runtime::RuntimeManager runtime;
     outdoor::gnss::GnssStatus gnssStatus;
     gnssStatus.source = config.gnssInputMode == "serial" ? "uart5" : "file";
     outdoor::mcu::McuStatus mcuStatus;
+    outdoor::navigation::CompassEstimator compassEstimator(config.compass);
+    const auto updateCompassStatus = [&]() {
+        const bool compassSourcesHealthy = mcuStatus.heartbeatSeen
+            && (mcuStatus.statusFlags & kCompassRequiredMcuFlags) == kCompassRequiredMcuFlags
+            && (mcuStatus.statusFlags & kCompassRejectedMcuFlags) == 0U;
+        mcuStatus.compassStatus = compassEstimator.estimate(
+            mcuStatus.imuSeen,
+            mcuStatus.imuSample,
+            mcuStatus.magnetometerSeen,
+            mcuStatus.magnetometerSample,
+            compassSourcesHealthy);
+    };
+    updateCompassStatus();
     outdoor::mcu::McuCommand mcuCommand {};
     if (!outdoor::mcu::parseMcuCommand(config.mcuCommand, mcuCommand)) {
         outdoor::log::Logger::error("Unsupported mcu_command value: " + config.mcuCommand);
@@ -627,12 +777,41 @@ int main(int argc, char* argv[])
     boardImuStatus.enabled = config.boardImuEnabled;
     boardImuStatus.source = config.boardImuSource == "iio" ? "icm20608_iio" : "icm20608_char";
     boardImuStatus.devicePath = config.boardImuSource == "iio" ? config.boardImuIioPath : config.boardImuDevicePath;
+
+    std::unique_ptr<outdoor::storage::HistoryRecorder> historyRecorder;
+    if (config.historyEnabled) {
+        historyRecorder = std::make_unique<outdoor::storage::HistoryRecorder>(
+            config.historyOutputPath,
+            config.historyFlushIntervalMs,
+            gnssStatus,
+            mcuStatus,
+            boardImuStatus);
+        std::string historyError;
+        if (!historyRecorder->start(historyError)) {
+            outdoor::log::Logger::error("History recorder initialization failed: " + historyError);
+            return 1;
+        }
+    }
+
+    const auto recordHistoryUpdate = [&historyRecorder](std::string& error) {
+        if (!historyRecorder) {
+            error.clear();
+            return true;
+        }
+        return historyRecorder->recordSnapshot(error);
+    };
+    const auto recordMcuUpdate = [&updateCompassStatus, &recordHistoryUpdate](std::string& error) {
+        updateCompassStatus();
+        return recordHistoryUpdate(error);
+    };
+
     if (config.gnssInputMode == "serial") {
         runtime.addService(std::make_unique<outdoor::services::GnssSerialService>(
             config.gnssSerialDevice,
             config.gnssSerialBaud,
             config.gnssSerialCaptureSeconds,
-            gnssStatus));
+            gnssStatus,
+            recordHistoryUpdate));
     } else {
         runtime.addService(std::make_unique<outdoor::services::GnssReplayService>(config.nmeaInputPath, gnssStatus));
     }
@@ -642,9 +821,13 @@ int main(int argc, char* argv[])
             config.mcuSerialBaud,
             config.mcuSerialCaptureSeconds,
             mcuCommand,
-            mcuStatus));
+            mcuStatus,
+            recordMcuUpdate));
     } else {
-        runtime.addService(std::make_unique<outdoor::services::McuMockService>(config.mcuMockInputPath, mcuStatus));
+        runtime.addService(std::make_unique<outdoor::services::McuMockService>(
+            config.mcuMockInputPath,
+            mcuStatus,
+            recordMcuUpdate));
     }
     if (config.boardImuEnabled) {
         runtime.addService(std::make_unique<outdoor::services::Icm20608Service>(
@@ -662,45 +845,82 @@ int main(int argc, char* argv[])
             config.dashboardFramebufferDevice,
             config.dashboardRefreshCount,
             config.dashboardRefreshIntervalMs,
+            config.launcherEnabled,
+            config.launcherInputDevice,
+            config.launcherAutoStartSeconds,
             gnssStatus,
             mcuStatus,
             boardImuStatus));
     }
 
     outdoor::ipc::StatusPublisher statusPublisher(config.statusOutputPath);
-    runtime.setGnssStatus(gnssStatus);
-    runtime.setMcuStatus(mcuStatus);
-    runtime.setBoardImuStatus(boardImuStatus);
-    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
-
-    if (!runtime.start()) {
+    const auto syncRuntimeStatus = [&]() {
+        updateCompassStatus();
         runtime.setGnssStatus(gnssStatus);
         runtime.setMcuStatus(mcuStatus);
         runtime.setBoardImuStatus(boardImuStatus);
-        publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
+    };
+    syncRuntimeStatus();
+    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
+
+    const auto runtimeStartedAt = std::chrono::steady_clock::now();
+    runtime.setStopPredicate([&config, runtimeStartedAt]() {
+        if (shutdownRequested != 0) {
+            return true;
+        }
+        if (config.runtimeRunSeconds == 0U) {
+            return false;
+        }
+        return std::chrono::steady_clock::now() - runtimeStartedAt
+            >= std::chrono::seconds(config.runtimeRunSeconds);
+    });
+    auto nextStatusPublishAt = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    runtime.setLoopCallback([&]() {
+        updateCompassStatus();
+        if (historyRecorder) {
+            std::string historyError;
+            if (!historyRecorder->recordSnapshot(historyError)) {
+                throw std::runtime_error(historyError);
+            }
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= nextStatusPublishAt) {
+            syncRuntimeStatus();
+            publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
+            nextStatusPublishAt = now + std::chrono::seconds(1);
+        }
+    }, 0U);
+
+    if (!runtime.start()) {
+        if (historyRecorder) {
+            historyRecorder->stop();
+        }
         outdoor::log::Logger::error("Outdoor Core Runtime failed to start");
+        syncRuntimeStatus();
+        publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
         return 1;
     }
-    runtime.setGnssStatus(gnssStatus);
-    runtime.setMcuStatus(mcuStatus);
-    runtime.setBoardImuStatus(boardImuStatus);
+    syncRuntimeStatus();
     publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
 
     if (!runtime.run()) {
         runtime.stop();
-        runtime.setGnssStatus(gnssStatus);
-        runtime.setMcuStatus(mcuStatus);
-        runtime.setBoardImuStatus(boardImuStatus);
-        publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
+        if (historyRecorder) {
+            historyRecorder->stop();
+        }
         outdoor::log::Logger::error("Outdoor Core Runtime failed while running");
+        syncRuntimeStatus();
+        publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
         return 1;
     }
 
     runtime.stop();
-    runtime.setGnssStatus(gnssStatus);
-    runtime.setMcuStatus(mcuStatus);
-    runtime.setBoardImuStatus(boardImuStatus);
-    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
+    if (historyRecorder) {
+        historyRecorder->stop();
+    }
     outdoor::log::Logger::info("Outdoor Core Runtime stopped");
+    syncRuntimeStatus();
+    publishStatus(statusPublisher, buildStatus(runtime, config, storageLastError));
     return 0;
 }

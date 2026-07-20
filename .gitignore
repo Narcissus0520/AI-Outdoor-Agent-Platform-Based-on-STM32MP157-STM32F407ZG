@@ -9,3 +9,6 @@ out/
 /mp157/outdoor-core-service/build-arm/
 *.uvguix.*
 /f407/sensor-hub/firmware/stm32cube/MDK-ARM/atk_f407_sensorhub/
+/f407/sensor-hub/build-gcc/
+/f407/sensor-hub/firmware/build-icm-only*/
+/tools/compass_calibrator/build-gcc/

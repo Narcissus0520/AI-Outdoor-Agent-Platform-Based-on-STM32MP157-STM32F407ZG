@@ -10,6 +10,7 @@ extern "C" {
 extern I2C_HandleTypeDef hi2c2;
 
 void MX_I2C2_Init(void);
+int MX_I2C2_Recover(void);
 
 #ifdef __cplusplus
 }

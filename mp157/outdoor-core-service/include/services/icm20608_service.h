@@ -5,6 +5,7 @@
 #include "sensors/icm20608_char_reader.h"
 #include "sensors/icm20608_iio_reader.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -22,7 +23,7 @@ public:
 
     const char* name() const override;
     bool start() override;
-    bool run() override;
+    outdoor::runtime::ServicePollResult poll() override;
     void stop() override;
 
 private:
@@ -36,6 +37,8 @@ private:
     outdoor::sensors::BoardImuStatus& status_;
     std::size_t sampleCount_;
     std::uint32_t sampleIntervalMs_;
+    std::size_t completedSampleCount_ = 0;
+    std::chrono::steady_clock::time_point nextSampleAt_ {};
 };
 
 } // namespace outdoor::services

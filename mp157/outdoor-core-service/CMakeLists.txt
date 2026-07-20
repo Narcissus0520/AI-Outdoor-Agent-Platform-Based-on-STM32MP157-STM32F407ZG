@@ -22,6 +22,7 @@ set(OUTDOOR_CORE_SOURCES
     src/mcu/mcu_frame_stream_decoder.cpp
     src/mcu/mcu_protocol.cpp
     src/mcu/mcu_status.cpp
+    src/navigation/compass_estimator.cpp
     src/runtime/runtime_manager.cpp
     src/runtime/runtime_status.cpp
     src/sensors/icm20608_char_reader.cpp
@@ -32,6 +33,7 @@ set(OUTDOOR_CORE_SOURCES
     src/services/icm20608_service.cpp
     src/services/mcu_mock_service.cpp
     src/services/mcu_serial_service.cpp
+    src/storage/history_recorder.cpp
 )
 
 add_library(outdoor_core STATIC
@@ -115,3 +117,58 @@ target_link_libraries(nmea_parser_tests
 )
 
 add_test(NAME nmea_parser_tests COMMAND nmea_parser_tests)
+
+add_executable(runtime_manager_tests
+    tests/runtime_manager_tests.cpp
+)
+
+target_link_libraries(runtime_manager_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME runtime_manager_tests COMMAND runtime_manager_tests)
+
+add_executable(history_recorder_tests
+    tests/history_recorder_tests.cpp
+)
+
+target_link_libraries(history_recorder_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME history_recorder_tests COMMAND history_recorder_tests)
+
+add_executable(logger_tests
+    tests/logger_tests.cpp
+)
+
+target_link_libraries(logger_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME logger_tests COMMAND logger_tests)
+
+add_executable(status_publisher_tests
+    tests/status_publisher_tests.cpp
+)
+
+target_link_libraries(status_publisher_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME status_publisher_tests COMMAND status_publisher_tests)
+
+add_executable(compass_estimator_tests
+    tests/compass_estimator_tests.cpp
+)
+
+target_link_libraries(compass_estimator_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME compass_estimator_tests COMMAND compass_estimator_tests)

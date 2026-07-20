@@ -1,5 +1,887 @@
 # Dev Log
 
+## 2026-07-21 - ICM42688-Only 100 kHz A/B and 400 kHz Rollback
+
+### 本次完成
+
+- 用户当前没有万用表，无法继续 VCC/AD0/SCL/SDA、连续性和有效上拉测量，因此把下一步收敛为“保持 ICM-only 隔离条件，仅把 I2C2 从 400 kHz 降为 100 kHz”的可回滚 A/B。
+- F407 固件新增 `SENSOR_HUB_I2C2_CLOCK_HZ` CMake cache 参数，只接受 `100000` 或 `400000`；默认 400 kHz 时不注入额外编译宏，100 kHz 构建打印非默认诊断警告。
+- I2C2 初始化改用编译期频率宏，默认仍回退到 `400000U`；F407 README 增加单器件 100 kHz 构建、非生产边界和完整复电要求。
+- 首个代码/README 三文件补丁因 README 现有 PowerShell 构建段与预期上下文不一致被原子拒绝，所有文件未写入；定位准确段落后按代码与文档拆分补丁成功。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/i2c.c`
+- `f407/sensor-hub/README.md`
+- README、项目设计、Stage 1、ADR、Changelog、开发日志和问题排查复盘文档
+
+### 验证结果
+
+- F407 主机 Debug 构建和 CTest 7/7 通过。
+- 默认正式 400 kHz ARM clean build 仍为 19384 B、text 19364 B、data 20 B、BSS 4408 B、SHA256 `f0addc29eec272be28aee46a063e95fd878b5681be83df0dc6e430f7687b9d1e`。
+- ICM-only 400 kHz clean build 仍为 15072 B、text 15052 B、data 20 B、BSS 4252 B、SHA256 `c07e235a5890b5a1fb3c1ffc8f053848be73d0f6223fe1d66abf68344142f80a`；build.ninja 中没有频率 override。
+- ICM-only 100 kHz build 为 15072 B、text 15052 B、data 20 B、BSS 4252 B、SHA256 `56b31d760f4a550e0837eaa3a7173c3f10a159b9c8c0339d63ed253a649c3e56`，build.ninja 明确包含 `SENSOR_HUB_I2C2_CLOCK_HZ=100000U`；非法值 `123456` 在 CMake 配置阶段按设计失败。
+- 100 kHz 镜像首次 COM6 烧录会话读到 Bootloader `0x31`、chip ID `0x0413`，但首个写地址响应为异常 `0xF9`；该次未计为成功。第二个全新会话读到异常 chip ID `0x0493`，写入后逐字节回读在 `0x0800013D` 不一致；同样未计为成功。Windows 仍枚举 CH340/COM6 为 OK 且未发现终端占用，但连续传输异常使当前 F407 Flash 不可信，已停止盲目重试并重新打开 TRB-002。
+- 用户物理拔插 COM6 USB/USB-UART 并保持终端关闭后，Windows 重新枚举正常；新的烧录会话取得 Bootloader `0x31`、chip ID `0x0413`，100 kHz 镜像全擦、写入、逐字节回读和 GO 全部通过。当前 Flash 已恢复可信，但这只是热复位部署，尚未形成 ICM A/B 结论。
+- 用户保持 COM6 关闭并让 100 kHz 镜像与 ICM42688 完整断电重上电；COM9 确认无残留 Runtime 后，唯一一次 8 秒 `icm42688_only` 预检目录为 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-wB2xhs`。预检以 9 项失败拒绝：heartbeat `53766 (0xD206)`、init step 1、recovery/failure `759/164`、FIFO overflow/malformed/empty/drain/skipped `58/22/12/0/309`，最后失败为备用地址 `0x68/REG_BANK_SEL(0x76)` 单字节 write、HAL error `0x04 (ACK failure)`；30/60 秒未启动。
+- 与窗口接近的 400 kHz `XMWvGC` 比较，100 kHz recovery 从 `3.980/s` 增至 `13.104/s`（`3.29×`），最终 failure 从 `0.772/s` 增至 `2.831/s`（`3.67×`），状态还从 `0x8181/init step 0` 退化为 `0xD206/init step 1`。较低的 FIFO overflow/skipped 来自真实 FIFO 工作中断和 fallback，不能解释为改善；“单纯 400 kHz 过快”假设被实板 A/B 证伪。
+- 准备回滚 400 kHz 时，首次命令在打开串口前报告 `The port 'COM6' does not exist`；没有进入 Bootloader、擦除或写入，因此该失败没有改变板上完整的 100 kHz 镜像。只读枚举当时仅见 COM9，历史 COM6 为 `Present=False/Status=Unknown`。
+- 用户确认 F407 USB-UART 实际已从 COM6 变为 COM3。只读检查确认 `USB-SERIAL CH340 (COM3)` 和 COM9 均为 OK，未发现实际串口终端占用。随后通过 COM3 将 15072 B、SHA256 `c07e235a...2f80a` 的 400 kHz ICM-only 基线重新全擦、写入并逐字节回读；Bootloader `0x31`、chip ID `0x0413`、GO `0x08000000` 全部成功。当前板上 Flash 已恢复为可信 400 kHz 隔离基线。
+
+### 后续 TODO
+
+- 保持 MMC5603/BMP390 断开和串口终端关闭；获取万用表后测量 ICM VCC/AD0、SCL/SDA 空闲电平、有效上拉、短线连续性和共地，或使用逻辑分析仪捕获 `REG_BANK_SEL/FIFO_COUNTH/FIFO_DATA/SIGNAL_PATH_RESET` 的 ACK/边沿。
+- 电气条件或器件问题修正前不再启动 30/60 秒和小时级验证；修正后先在 400 kHz ICM-only 基线上完整复电并通过 8 秒零累计门槛，再进入 30/60 秒，最后才恢复正式三传感器镜像并逐颗接回。
+
+## 2026-07-20 - Reproducible ICM42688-Only Diagnostic Profile
+
+### 本次完成
+
+- 用户报告只保留 ICM42688 并完整复电后，先通过 COM9 确认没有残留 Runtime，再执行 8 秒正式预检；目录 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-9D6RBq` 按设计失败。
+- 该状态并非干净的 ICM-only 证据：heartbeat 为 `21046 (0x5236)`、ICM init step 1；diagnostics 已累计 recovery 3377、最终 failure 3264、overflow/malformed/empty/skipped 84/14/14/458，最近事务仍为 MMC5603 `0x30/STATUS1(0x18)`；同时 `barometer_seen=true`。因此不把失败归因 ICM 本体，也不假设人工接线动作已经形成可验证的电气隔离。
+- 为消除正式三传感器固件对缺失从机的访问，新增默认关闭的 `SENSOR_HUB_ICM42688_ONLY_DIAGNOSTIC` CMake 选项；启用后编译期移除 MMC5603/BMP390 初始化与周期轮询，并在 heartbeat 设置 `0x8000` 诊断镜像位。
+- 扩展 `run_board_health_preflight.sh` 第五个参数 `validation_profile`：默认 `full` 保持既有正式门槛；`icm42688_only` 要求磁力计/气压计 absent、状态精确为 `0x8181`，且 I2C recovery/failure、FIFO overflow/malformed/empty/drain/skipped、init step 和 UART4 RX drop 全部为零。
+- ICM-only profile 脚本经 Git Bash 和板端 `/bin/sh -n` 验证，通过 XMODEM 上传、SHA256 核对后部署到 `/opt/outdoor-agent/scripts`。
+- 新增协议 bit 15 和 F407 构建说明；隔离构建目录加入 `.gitignore`，避免诊断 BIN/ELF/map/CMake cache 进入提交范围。
+- 将串口嵌套 here-string 复现、无效的正式固件隔离预检、新建 ARM 构建参数失败和所有回退步骤追加到 TRB-024/026/031/032。
+- 用户确认诊断镜像与 ICM42688 完整断电重上电后，通过 COM9 确认没有残留 Runtime，并执行唯一一次 8 秒 `icm42688_only` profile；证据目录为 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-gsVcum`。
+- 本轮 heartbeat 精确为 `33153 (0x8181)`、真实 IMU seen、init step 0、磁力计/气压计 absent，证明完整复电恢复初始化且隔离模式有效；但累计 recovery/failure 为 `660/105`，FIFO overflow/malformed/empty/drain/skipped 为 `707/126/39/0/2933`，profile 以 7 项失败拒绝，30/60 秒按门槛未启动。
+- 最后事务为 ICM `0x69/SIGNAL_PATH_RESET(0x4B)` 单字节写，HAL status `3 (TIMEOUT)`、error `32 (0x20)`；其他从机软件访问已被编译期排除，因此根因边界收敛到 ICM 单器件供电/布线/上拉/模块本体和 FIFO 恢复交互，具体根因仍待电气测量或波形确认。
+- 用户随后补充该轮完整复电与预检期间 COM6 实际未关闭，现已关闭。原目录和全部计数继续作为真实异常证据保留，但由于 COM6 控制线存在应用热复位风险，本轮不再算作干净完整复电验收；必须在 COM6 全程关闭下再次完整复电并重跑 8 秒门槛。
+- COM6 全程关闭后再次完整复电，COM9 确认无残留 Runtime；唯一一次干净 8 秒 profile 目录为 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-XMWvGC`，仍以 7 项累计门槛失败。
+- 干净轮次为 `0x8181`、init step 0、真实 IMU、其他两类传感器 absent，但 diagnostics uptime `58298 ms` 已累计 recovery/failure `232/45` 和 FIFO overflow/malformed/empty/drain/skipped `186/21/20/0/671`。最后失败为 `0x69/FIFO_DATA(0x30)` 112 B read、HAL status 1、error `0x04 (ACK failure)`；30/60 秒未启动。
+- 干净与受污染轮次的 recovery/overflow/skipped 均为相同数量级，否定“COM6 未关闭是异常必要条件”；根因仍未最终确认，下一步转入 ICM 单器件电压、连续性、上拉和波形测量。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `mp157/outdoor-core-service/scripts/run_board_health_preflight.sh`
+- `.gitignore`
+- README、MCU 协议、Stage 1、设计、开发日志、Changelog 和问题排查复盘文档
+
+### 验证结果
+
+- F407 主机 CTest 7/7 通过。
+- 默认正式 ARM clean build 保持 BIN 19384 B、text 19364 B、data 20 B、BSS 4408 B、SHA256 `f0addc29...b9d1e`，证明默认 `OFF` 没有改变正式产物。
+- ICM-only ARM Release build 通过：BIN 15072 B、text 15052 B、data 20 B、BSS 4252 B、SHA256 `c07e235a5890b5a1fb3c1ffc8f053848be73d0f6223fe1d66abf68344142f80a`。
+- ICM-only 镜像通过 COM6 ROM Bootloader 烧录和逐字节回读；Bootloader version `0x31`、chip ID `0x0413`。该动作只完成部署，属于热复位，尚未形成新的传感器隔离结论。
+- 热复位后的 `icm42688_only` profile 烟测目录 `outdoor-agent-health-preflight-eGaj29` 正确识别 `0x8000` 诊断位和磁力计/气压计 absent；FIFO 五项为零，但 ICM init step 1、recovery/failure 898、最后 `0x68/REG_BANK_SEL` NACK，最终 `0xD006`，按设计以 5 项失败拒绝。该结果只验证模式和脚本，不替代完整复电。
+- 预检脚本本机/板端语法通过，部署前后 SHA256 均为 `7363227686be09955bbc67b79a126deeeb789e03f3ef49ca2430625d3e312dbf`，权限为 0755。
+- 首次新目录 CMake 命令因 toolchain/Ninja 参数边界失败；改用绝对路径参数数组和新目录后通过。首次 COM9 helper 也因嵌套 here-string 在主机解析阶段失败；改用固定标记命令后通过。两次失败均未修改板端目标，已记录而非隐藏。
+- 首次读取热复位烟测又把完整结束 token 放进被回显的命令，主机提前返回；未重复启动 Runtime，随后用执行期拼接 token 读取同一目录完成闭环，复现已追加到 TRB-012。
+- 完整复电后的 8 秒预检首次启动命令在主机 PowerShell 解析阶段因嵌套 `"$root/..."` 报 `Unexpected token`；串口未打开、板端未执行。改用 PowerShell 单引号原样保存远端命令后成功，复现已追加到 TRB-010。
+- 首次多文件文档补丁因预期上下文漏了“Git Bash 和板端”之间的空格而原子校验失败，所有目标文件均未写入；改为按文件拆分并使用精确上下文后成功，随后 `git diff --check` 通过。
+- COM6 前提补正文档的首轮 `rg` 校验把含 Markdown 反引号的模式放进 PowerShell 双引号字符串，主机报 `The string is missing the terminator`；未打开串口或执行板端命令，改用单引号搜索模式后完成校验，复发追加到 TRB-010。
+
+### 后续 TODO
+
+- 保持 ICM-only 诊断镜像、MMC5603/BMP390 断开和 COM6 关闭；上电测量 ICM VCC、AD0、PB10/SCL、PB11/SDA 对 GND 电压，断电测量 PB10↔SCL、PB11↔SDA、GND↔GND 连续性。
+- 电气静态条件确认后，优先抓取 `FIFO_COUNTH/FIFO_DATA/SIGNAL_PATH_RESET` 事务波形；没有示波器/逻辑分析仪时，再设计单器件 100 kHz 可回滚 A/B。
+- 隔离门槛最终通过后刷回默认 19384 B 正式镜像；按 MMC5603、BMP390 顺序逐颗接回，每一步完整复电并重复同条件增量审计。
+
+## 2026-07-19 - Full-Power Runtime I2C/FIFO Failure Reproduction and Isolation Plan
+
+### 本次完成
+
+- 在用户确认 F407、ICM42688 和相关传感器已完整断电重上电后，执行正式 8 秒预检：`outdoor-agent-health-preflight-rjgpa6` 以 `0x01A9`、四类 F407 数据、ping ACK、diagnostics schema 1/drop 0、GNSS NMEA、Board IMU 和 Logger 门槛全部通过，确认上电初始化已恢复。
+- 没有仅以最终 heartbeat 判定稳定。首个预检在 F407 uptime 104078 ms 已累计 I2C recovery 234、FIFO overflow/malformed/skipped 56/19/713；约 73 秒后，长测入口的第二次预检 `outdoor-agent-health-preflight-Hq1vCJ` 以 `0x03A9` 拒绝启动，累计增量 recovery/failure/overflow/malformed/empty/skipped 为 `+190/+2/+58/+15/+16/+531`，最近失败为 ICM42688 `0x69/FIFO_COUNTH(0x2E)` 读取。
+- 对照 TDK ICM42688-P 官方 FIFO 定义核对 `FIFO_COUNT_REC`、`FIFO_WM_GT_TH`、16 字节 accel+gyro packet 和 header 位；当前 `INTF_CONFIG0=0x70`、正式 `FIFO_CONFIG1=0x27` 的 record-count 配置语义正确。
+- 完成三个可回滚 A/B：I2C2 100 kHz、固定 partial-read 8 records/128 B、固定 partial-read 4 records/64 B。100 kHz 在约 22 秒已失败；两个 fixed-window 版本分别持续产生高频 recovery/malformed/empty，均未解决问题并全部撤回。
+- 用一次性诊断镜像在 parse 失败时抓取 64 B FIFO 的四个 16 B 边界首字节，实板得到 `06 FF FF FF`，不符合正常 `68` 或 empty `80` 包头；证据支持“成功返回的数据流已错位/损坏”，但尚不能在没有波形和单器件隔离的情况下断言具体物理根因。
+- 删除临时诊断复用，恢复 400 kHz、record-count 和精确完整记录读取；相应 provider/parser 测试恢复到正式行为。当前正式 BIN 已重新刷入并逐字节回读，板端不再运行实验镜像。
+- 将完整复电结果、每个失败假设、固件哈希、预检目录、增量和后续单器件隔离步骤追加到 TRB-004/TRB-024；ADR-0021 明确更新为“软件决策保留，但板端验收未通过”。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/sensors/icm42688_provider_c.c`
+- `f407/sensor-hub/firmware/sensors/icm42688_fifo_parser_c.c`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/i2c.c`
+- `f407/sensor-hub/firmware/stm32cube/atk_f407_sensorhub.ioc`
+- `f407/sensor-hub/tests/{icm42688_provider_test.cpp,icm42688_fifo_parser_test.cpp}`
+- README、Stage 1、设计、ADR、变更和问题复盘文档
+
+### 验证结果
+
+- 恢复后的 F407 主机 CMake/MSVC Debug 构建通过，`ctest --test-dir build -C Debug --output-on-failure` 为 7/7；首次遗漏 `-C Debug` 得到 7 个 `Not Run`，补正后全部实际执行通过，该命令用法继续遵循 TRB-022。
+- F407 ARM clean build 通过：BIN 19384 B，text 19364 B、data 20 B、BSS 4408 B，SHA256 `f0addc29eec272be28aee46a063e95fd878b5681be83df0dc6e430f7687b9d1e`。
+- COM6 ROM Bootloader 烧录和逐字节回读通过，Bootloader version `0x31`、chip ID `0x0413`。这是热复位，不计为本轮物理故障修复验证。
+- 30/60 秒正式测试和 3600 秒长测均未启动：第二次预检已在创建正式测试前拒绝，避免把持续 I2C/FIFO 恢复当作健康结论。
+
+### 后续 TODO
+
+- 完全断电后先断开 MMC5603 与 BMP390，只保留 ICM42688 及其 3.3 V/GND、PB10 SCL、PB11 SDA、PB12 INT1、AD0 3.3 V；复电后执行同一 diagnostics 增量审计。
+- 若 ICM-only 稳定，依次接回 MMC5603、BMP390 定位拖累源；若仍失败，测量 SCL/SDA 空闲电平、确认 4.7k–10k 上拉和短线共地，优先取得逻辑分析仪/示波器波形。
+- 只有短测 recovery/failure/overflow/malformed/skipped 增量满足零门槛后，才重新启动 30/60 秒和 3600 秒正式测试。
+
+## 2026-07-19 - Offline Full-Matrix Compass Calibration Tool
+
+### 本次完成
+
+- 新增独立 C++17 `tools/compass_calibrator`，直接读取 History Recorder 的 `magnetometer.csv`，把 nT 转换为 μT，并输出 Runtime 已支持的硬铁偏置和完整 3×3 候选矩阵。
+- 对数据做平移/尺度归一化，使用 9 参数完整三维二次曲面最小二乘；自行实现 3×3 Jacobi 特征分解和正定平方根，不引入 Eigen、Python、NumPy 或其他第三方依赖。
+- 以矩阵行列式归一保留三轴几何平均场强；质量报告包含输入/使用/离群样本数、八分体覆盖、方向方差比、椭球轴比、原始场强范围、校正场强、RMS 和最大残差。
+- 增加两阶段稳健处理：拟合前用分量中位数与径向 MAD 去除极端强磁点，拟合后按残差 MAD 裁剪并重新拟合。
+- 支持可选、独立测量的 proper sensor-to-body rotation，最终配置矩阵为 `R * soft_iron`；磁力计椭球本身不用于猜测安装方向。
+- 只要拟合得到候选参数，无论质量门禁是否通过，配置都固定输出 `compass_calibration_valid=false`；拟合失败不写候选，后续八方向/倾角/动态/磁偏角验收通过后才能人工启用。
+- 新增 ADR-0024 和工具 README，并将构建、数据流、验收边界同步到项目 README、设计、Stage 1 和仓库结构文档。
+
+### 修改文件
+
+- `tools/compass_calibrator/CMakeLists.txt`
+- `tools/compass_calibrator/include/calibration/compass_calibrator.h`
+- `tools/compass_calibrator/src/{compass_calibrator.cpp,main.cpp}`
+- `tools/compass_calibrator/tests/{compass_calibrator_test.cpp,data/magnetometer_sphere.csv}`
+- `tools/compass_calibrator/README.md`
+- `.gitignore`
+- `docs/adr/0024-fit-compass-calibration-offline.md`
+- README、Stage 1、设计、仓库结构、变更和问题复盘文档
+
+### 验证结果
+
+- MSVC Debug CMake 构建通过，CTest 3/3；GCC 16.1 Release + Ninja 构建通过，`-Wall -Wextra -Wpedantic` 无警告，CTest 3/3。新增固定球面 CSV 端到端用例，验证 CSV 读取、命令行拟合和候选配置写出。
+- 全仓回归再次遇到 TRB-023：当前 PowerShell `PATH` 无 `bash`，首轮 `bash -n` 未执行；改用已确认存在的 `C:\Program Files\Git\bin\bash.exe` 后，仓库 8 份 shell 脚本语法检查全部通过。失败命令和替代路径均保留在排查复盘，未把首次失败误报为通过。
+- 新工具首次 GCC Release 构建后，`git status --untracked-files=all` 暴露 `build-gcc/` 未被现有 `build/` 规则覆盖；新增工具级忽略规则并记录为 TRB-031，避免缓存、静态库和 smoke 输出混入提交。
+- 全仓回归通过：F407 主机 CTest 7/7，F407 ARM Release 为 19376 B、SHA256 `365fb9c3...129c`；MP157 主机 CTest 10/10、Runtime verifier 通过，ARM Runtime 为 258560 B、SHA256 `47c4bcc9...b739`；PowerShell parser errors 为 0，`git diff --check` 通过。
+- 1600 点 Fibonacci 全姿态合成数据包含已知硬铁偏置、非对角全矩阵畸变和确定性噪声；拟合偏置误差小于 0.05 μT、每个矩阵元素误差小于 0.01、RMS 残差小于 0.2%、最大残差小于 0.5%，8/8 八分体通过。
+- 近平面数据被拒绝；5 个约 250 μT 三轴极端干扰点使初版普通最小二乘失败，加入粗筛后全部被剔除且最终 RMS 小于 0.5%。
+- 90° Z 轴 sensor-to-body 旋转与软铁矩阵组合结果逐元素通过；非正交矩阵被拒绝。
+- CSV loader 覆盖真实 History header、带引号时间字段和 nT/μT 换算；候选文本明确包含 `compass_calibration_valid = false` 和完整 `00..22` 配置键。
+- 首轮 CTest 因裸 `assert` 打开 MSVC modal 并留下测试/CTest 进程；精确核对路径后终止 PID 21828/24720。随后发现 Release 下 `assert` 被编译掉导致假绿和未使用变量警告，最终改为所有构建类型始终生效的 `CHECK`。完整过程记录为 TRB-030。
+- 尚未使用真实室外 MMC5603 CSV；当前证据只证明工具在合成畸变、失败数据和跨编译器下的行为，不能把罗盘标定项标记完成。
+
+### 后续 TODO
+
+- 完整复电恢复 ICM42688 后采集多个独立全姿态磁场数据集，用该工具比较偏置、矩阵、场强和残差稳定性。
+- 独立测量传感器到机身的轴向旋转，完成八方向静态、不同倾角、重复性和动态航向验收，再人工启用 calibration valid。
+
+## 2026-07-19 - Versioned UART4 RX Drop Diagnostics
+
+### 本次完成
+
+- 将 F407 已有的 UART4 RX 环形缓冲丢弃计数纳入 `0x02` Sensor Hub diagnostics：保留 legacy 44 字节载荷的语义，在尾部追加 schema version 1 和 32 位累计丢弃字节数，当前载荷长度为 48 字节。
+- MP157 parser 同时接受 legacy 44 字节/schema 0 和当前 48 字节/schema 1；未知扩展版本直接拒绝，避免把未来字段静默误解为当前格式。
+- `runtime_status.json` 和文本 MCU 状态新增 `diagnostics.schema_version`、`diagnostics.uart4_rx_drop_count`。
+- 8 秒预检、逐秒健康时间线、结束审计和 COM6 verifier 新增 schema 1、drop 0 门槛；时间线审计还检查 RX drop 单调性、运行期增量和最终值。
+- 新增 F407 diagnostics frame-builder 测试，验证 48 字节长度、schema 1、32 位小端计数和 CRC；扩展 MP157 parser/status publisher 测试，覆盖 schema 1、legacy 兼容和未知版本拒绝。
+- 新增 ADR-0023 和 TRB-028，记录为什么选择版本化尾部扩展、部署顺序、验收边界和真实溢出注入结果；新增 TRB-029，保留首轮手工预检参数顺序错误及纠正过程。
+
+### 修改文件
+
+- `common/protocol/mcu_protocol.h`
+- `f407/sensor-hub/firmware/protocol/mcu_frame_builder_c.{h,c}`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/tests/mcu_frame_builder_test.cpp`
+- `f407/sensor-hub/CMakeLists.txt`
+- `mp157/outdoor-core-service/include/mcu/{mcu_protocol.h,mcu_status.h}`
+- `mp157/outdoor-core-service/src/mcu/{mcu_frame_parser.cpp,mcu_status.cpp}`
+- `mp157/outdoor-core-service/src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/tests/{mcu_protocol_tests.cpp,status_publisher_tests.cpp}`
+- `mp157/outdoor-core-service/scripts/{run_board_health_preflight.sh,monitor_board_runtime_health.sh,audit_board_long_validation.sh}`
+- `scripts/verify_f407_uart.ps1`
+- README、协议、Stage 1、设计、仓库结构、ADR、变更和问题复盘文档
+
+### 验证结果
+
+- F407 主机 CMake/MSVC Debug 构建和 CTest 7/7 通过；MP157 主机 CMake/MSVC Debug 构建和 CTest 10/10 通过；完整 `verify_runtime.ps1` 通过。
+- F407 ARM Release 构建通过：BIN 19376 B，text 19356 B、data 20 B、BSS 4408 B，SHA256 `365fb9c32998bcb232329f6b200a9cd9a6d83635b56974471a9085c579af129c`。
+- MP157 ARMv7 hard-float 构建通过：Runtime 258560 B，SHA256 `47c4bcc9f34f1d45add17e27734f2e8acda7b2e77364ba87e7d151b7092bb739`。
+- 三份修改后的 POSIX shell 脚本均通过 `sh -n`；通过 COM9 部署后，Runtime/脚本哈希、权限、systemd 和设备门槛全部通过。
+- 通过 COM6 ROM Bootloader 烧录 F407 schema 1 镜像并逐字节回读通过。该动作会热复位 F407，不能视为传感器复电验证；启动后 ICM42688 仍不 ACK。
+- 实板预检目录 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-ZVXjOR` 已看到 diagnostics schema 1、`uart4_rx_drop_count=0`、GNSS、四类 MCU 数据、ping ACK、Board IMU、Logger 三项健康和空核心错误；唯一失败项仍为真实 F407 sensor status `4142 (0x102E)`。累计 I2C recovery/failure 均为 56，最近失败为设备 `0x68`、寄存器 `0x76` 写事务、HAL status 1/error 4、init step 1。
+- 在 MP157 上用当前最终状态执行 3 秒 monitor 脚本探针，得到表头 23 列、4 行数据、所有行字段数 23、schema 1、drop 0；临时目录已清理。
+- 确认 `/dev/ttySTM1` 无进程占用后，以 115200 8N1 连续写入 40960 字节；F407 heartbeat 变为 `12334 (0x302E)`，预检 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-jYMnDJ` 解码 `schema_version=1`、`uart4_rx_drop_count=2231`，并同时拒绝非零 drop 与原有 ICM 状态两项。
+- 首次手工调用把 Runtime 路径误放在第一个位置，脚本返回 `duration_seconds must be a positive integer`、rc 2 且没有启动 Runtime；按实际 `duration runtime config storage_mount` 顺序重试后才取得上述有效证据。该自动化错误记录为 TRB-029。
+- 使用与现有 verifier 相同的 COM6 DTR/RTS 应用复位序列清零 F407 启动周期状态；复位后预检 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-XOXgzn` 通过 schema 1/drop 0 和全部软件门槛，只剩原有 ICM42688 `0x102E` 一项失败。
+
+### 后续 TODO
+
+- F407 与 ICM42688 3.3 V 完整掉电再上电后，先通过 8 秒预检，再执行 30/60 秒 diagnostics 增量审计；不要用 COM6 热复位替代完整复电。
+- 在扩展完整下行命令集前测量主循环最坏消费延迟和不同持续流量下的容量边界，再决定是否扩大 RX ring 或引入 DMA/idle-line 接收。
+
+## 2026-07-19 - Structured Logger Failure Health
+
+### 本次完成
+
+- 新增 `LoggerStatus`，在每个文件输出会话内累计日志轮转失败、写/flush 失败和最后错误；关闭输出不会清除已经发生的故障证据。
+- 轮转文件操作失败后尝试重新以 append 模式打开活动日志；恢复成功时继续写入触发日志，但失败计数和错误保持可审计。
+- `runtime_status.json` 的 `storage` 节点新增 `log_rotation_failure_count`、`log_write_failure_count` 和 `log_last_error`；Logger 错误同时进入聚合 `storage.last_error`。
+- 健康预检与长测结束审计新增 Logger 两类计数为零、错误为空的门槛，避免仅通过日志文件存在和备份数量判断存储健康。
+- 新增 `status_publisher_tests`，验证非零计数和带引号错误文本的 JSON 序列化；Logger 测试新增可移植的轮转失败故障注入和恢复后继续写入验证。
+- 新增 TRB-027，记录“日志错误只写 stderr、无法进入无人值守验收证据”的观测性缺口、方案和验证边界。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/log/logger.h`
+- `mp157/outdoor-core-service/src/log/logger.cpp`
+- `mp157/outdoor-core-service/include/runtime/runtime_status.h`
+- `mp157/outdoor-core-service/src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/tests/logger_tests.cpp`
+- `mp157/outdoor-core-service/tests/status_publisher_tests.cpp`
+- `mp157/outdoor-core-service/CMakeLists.txt`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `mp157/outdoor-core-service/scripts/run_board_health_preflight.sh`
+- `mp157/outdoor-core-service/scripts/audit_board_long_validation.sh`
+- README、Stage 1、设计、ADR、变更和问题复盘文档
+
+### 验证结果
+
+- MP157 CMake/MSVC Debug 构建通过，CTest 10/10；`logger_tests` 用非空 `.1` 目录确定性触发轮转失败，确认计数为 1、写入失败计数为 0、错误保留且活动日志恢复后仍包含触发消息。
+- `status_publisher_tests` 验证轮转失败计数 3、写失败计数 2 和含引号错误文本均正确写入 JSON；完整 `verify_runtime.ps1` 通过正常路径零错误断言。
+- ARMv7 hard-float 交叉构建通过。最新 Runtime 为 258560 B，SHA256 `330b7bc4ee95d58e83ce7590f122e67cffc8e112a8b741801102eb95cb52a645`。
+- 通过 COM9 完成 `/opt/outdoor-agent` 幂等部署，Runtime、配置、七份 shell 脚本、三份 MCU fixture、NMEA fixture 和 systemd unit 的 SHA256/权限/语法/服务/设备门槛全部通过。
+- 真实 MP157 确定性运行发布 `log_rotation_failure_count=0`、`log_write_failure_count=0`、`log_last_error=""` 并以 rc 0 结束；临时目录 `/tmp/outdoor-agent-log-health-ZXwTJb` 经绝对路径与前缀校验后已删除。
+- 最新真实预检目录 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-FImCIn` 中三个 Logger 门槛均通过；预检仍仅因 F407 `status_flags=4142 (0x102E)` 返回 1。累计 I2C recovery `6636`、最终 failure `6632`，最后失败仍为 ICM42688 `0x68/REG_BANK_SEL(0x76)` 写事务、init step 1，因此未启动正式 30 秒测试。
+- 尚未在真实 SD 卡上注入写满、拔卡或只读重挂载导致的 write/flush 失败，不能把正常路径计数为零描述为介质故障注入已经通过。
+
+### 后续 TODO
+
+- 在独立、可恢复的测试目录和明确停机边界下设计 SD 写满/只读故障注入，验证 `log_write_failure_count`、status 持久化和长测审计拒绝路径。
+- F407 与 ICM42688 完整掉电复电后继续 8 秒预检和 30/60 秒 diagnostics 增量审计。
+
+## 2026-07-19 - Configurable Tilt-Compensated Compass Estimation
+
+### 本次完成
+
+- 在 MP157 Runtime 新增 `CompassEstimator`，组合 F407 ICM42688 加速度和 MMC5603 磁场样本，输出磁航向、磁偏角修正航向、roll/pitch、磁场强度和质量状态。
+- 支持三轴硬铁偏置与完整 3×3 软铁/传感器安装变换矩阵；配置校验拒绝非有限数、奇异矩阵、非法范围和零样本时差。
+- 增加样本时差、静态加速度模长、磁场模长和 F407 heartbeat 来源健康门槛；动态、受干扰、Mock fallback 或 FIFO/I2C 当前错误状态返回明确错误，不沿用旧航向。
+- `runtime_status.json` 增加独立 `compass` 节点；text/framebuffer dashboard 使用有效罗盘航向，并删除固定 `62.3°` 假航向。罗盘无效时只允许有效且速度不低于 1 km/h 的 GNSS course 回退。
+- 默认单位矩阵和零偏置明确设置 `compass_calibration_valid=false`，输出 `quality=uncalibrated`；没有虚构真实整机标定已经完成。
+- MCU frame 成功应用后立即更新派生罗盘状态，再触发 history callback，保证同轮 dashboard 看到一致状态。
+- 新增 ADR-0022；三次集成验证失败及根因记录为 TRB-025。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/navigation/compass_estimator.h`
+- `mp157/outdoor-core-service/src/navigation/compass_estimator.cpp`
+- `mp157/outdoor-core-service/tests/compass_estimator_tests.cpp`
+- `mp157/outdoor-core-service/data/mcu_mock_frames_compass.txt`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+- `mp157/outdoor-core-service/src/services/mcu_mock_service.cpp`
+- `mp157/outdoor-core-service/config/*.conf`
+- `docs/adr/0022-compute-calibrated-compass-heading-on-mp157.md`
+- README、Stage 1、设计、变更和问题复盘文档
+
+### 验证结果
+
+- MP157 CMake/MSVC Debug 构建通过，CTest 9/9；新增测试覆盖四方位、磁偏角、硬铁修正、30° 倾斜、缺输入、样本过期、磁场越界和奇异矩阵。
+- `verify_runtime.ps1` 最终通过；聚焦 fixture 的 JSON/dashboard 同时报告 `valid=true`、`tilt_compensated=true`、`quality=uncalibrated`，航向在 `[0,360)`。
+- ARMv7 hard-float 交叉构建通过。
+- 通过 COM9 将 254152 B ARM Runtime、配置、验证脚本和聚焦 fixture 部署到 `/opt/outdoor-agent`，全部 SHA256/权限/语法/systemd/设备门槛通过；板端 Runtime SHA256 为 `8f4c142301188a617bad7d49a60f7aeeaf9d70986998146ce0c030dcbf0210d5`。
+- MP157 板端使用聚焦 fixture 得到 JSON/dashboard 一致的 `valid=true`、`tilt_compensated=true`、heading `30.303°`、field `57.711 uT`、`quality=uncalibrated`；该结果验证 ARM 软件链路，不代表真实传感器标定。
+- 首次验证因默认 fixture 没有磁力计失败；第二、三次因有限 dashboard 刷新早于 mock 注释/传感器帧消费失败。过程、无效尝试和最终方案均记录在 TRB-025。
+- 板端 `/tmp` 清理的一次性嵌套引号命令在主机解析阶段失败，随后复用参数化 helper 精确清理并验证不存在；记录为 TRB-026。
+- 使用同一最新 ARM Runtime 执行真实 8 秒健康预检：目录 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-C8NBPu` 中 GNSS、MCU 四类数据、ping ACK、diagnostics、Board IMU 和核心 error 门槛均通过，但 F407 仍为 `status_flags=4142 (0x102E)`；累计 I2C recovery `5211`、最终 failure `5208`，最后失败仍是 ICM42688 `0x68/REG_BANK_SEL(0x76)` 写事务、init step 1。预检返回 1，未启动 30 秒正式测试；重复证据已追加到 TRB-004/TRB-024。
+- 尚未执行真实板罗盘标定和精度验收，不能将软件通过描述为真实航向已校准。
+
+### 后续 TODO
+
+- 在室外远离磁干扰源完成多姿态采集，拟合硬铁偏置和 3×3 软铁/安装矩阵。
+- 结合当地磁偏角执行八方向、倾斜、重复性和动态稳定性验收。
+- 等待 F407/ICM42688 完整复电后继续 diagnostics 短测与小时级验证。
+
+## 2026-07-19 - Diagnostics Short-Test Root Cause and Bounded Shared-I2C Polling
+
+### 本次完成
+
+- 将 UART4 Sensor Hub diagnostics 镜像部署到真实 F407/MP157 链路，执行两轮同条件 30 秒审计并保留失败证据；没有用最终健康 heartbeat 覆盖累计错误。
+- 第一轮确认 ICM42688 `HEADER_MSG` 空 FIFO 标记被旧 parser 放大为 skipped，并将 FIFO 改为大端 record-count、4 条记录 watermark、完整 16 字节记录读取；同时移除运行期 `INT_STATUS` 事务、将 I2C2 提升到 400 kHz，并把单次 FIFO 失败与立即 Mock fallback 解耦。
+- 第二轮 skipped 从 9281 降至 290，但 recovery/failure/overflow 仍失败；最近事务横跨 ICM42688、MMC5603 和 BMP390，据此定位 MMC5603 单次测量后的无间隔 `STATUS1` 紧轮询。
+- 按 MMC5603 默认 `BW=00` 的 6.6 ms 测量时序，触发后等待 7 ms，再最多检查 3 次状态且每次间隔 1 ms；新增 provider 主机测试和 ADR-0021。
+- 最新 19356 B 固件已烧录并逐字节回读。热刷写后 ICM42688 再次不 ACK，真实预检以 `0x102E` 拒绝正式短测；该负向结果记录在 TRB-004、TRB-020 和 TRB-024。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/sensors/icm42688_fifo_parser_c.c`
+- `f407/sensor-hub/firmware/sensors/icm42688_provider_c.c`
+- `f407/sensor-hub/firmware/sensors/mmc5603_provider_c.c`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/i2c.c`
+- `f407/sensor-hub/firmware/stm32cube/atk_f407_sensorhub.ioc`
+- `f407/sensor-hub/tests/icm42688_fifo_parser_test.cpp`
+- `f407/sensor-hub/tests/mmc5603_provider_test.cpp`
+- `docs/adr/0021-bound-mmc5603-polling-and-use-fifo-record-count.md`
+- `docs/troubleshooting_log.md` 及项目状态文档
+
+### 验证结果
+
+- F407 主机 Debug 构建和 CTest 6/6 通过。
+- GNU ARM 固件构建通过：BIN 19356 B、text 19336 B、data 20 B、BSS 4408 B，SHA256 `d220cbc7b9dcf2751be55eba930199a745aaf4296e7a9a4e0f5a69684e32ad56`。
+- COM6 UART Bootloader 烧录和逐字节回读通过。
+- 真实预检目录 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-HuwN9j` 保存 `status_flags=4142 (0x102E)`、52 次最终 I2C failure 和 ICM42688 `REG_BANK_SEL(0x76)` 写 NACK；预检返回非零且没有启动正式测试，符合门槛设计。
+- 最新修复尚未取得完整复电后的 30/60 秒正向板端结果，不能宣称修复已通过真实板验收。
+
+### 后续 TODO
+
+- F407 与 ICM42688 3.3 V 完整掉电几秒再上电，先执行 8 秒预检，再执行同条件 30/60 秒 diagnostics 增量审计。
+- 短测通过后从新目录启动 3600 秒耐久；随后执行 SIGKILL 恢复和室外 GNSS fix 验收。
+
+## 2026-07-19 - Board Health Preflight, Timeline and Sensor Hub Diagnostics
+
+### 本次完成
+
+- 新增 `run_board_health_preflight.sh`，在正式板端验收前独占执行 8 秒真实 GNSS/MCU/Board IMU 采集并保存独立状态、日志、元数据和报告。
+- 预检强制要求 Runtime 受控停止、GNSS seen、F407 四类数据 seen、ping ACK status 0、`status_flags=425 (0x01A9)`、Board IMU seen，以及 Runtime/storage/MCU/Board IMU error 为空。
+- 小时长测与 SIGKILL 恢复脚本只有预检通过才创建正式测试目录；元数据关联预检目录，失败报告不会混入正式耐久证据。
+- 部署脚本增加预检脚本的上传、权限、SHA256 和 `sh -n` 门槛；README、设计、目录、Stage 1 和问题复盘同步更新。
+- 新增 `TRB-20260719-020`，记录“结束时才检查传感器健康”造成无效耐久任务的风险、根因和方案取舍。
+- 新增 `monitor_board_runtime_health.sh`，长测逐秒记录状态位和核心 error；审计新增样本覆盖、致命位、99% 健康占比、最长 5 秒降级和最终 `0x01A9` 门槛。
+- 新增 ADR-0019 和 `TRB-20260719-021`，记录最终快照漏洞、瞬态与永久故障的方案取舍，以及当时无法从 MP157 获取 USART1-only 累计 diagnostics 的证据边界。
+- 将 44 字节 `0x02 sensor_hub_diagnostics` 同时送入 UART4/MP157 和 USART1/COM6；MP157 新增解析、状态发布和主机测试，健康时间线同步保存 I2C/FIFO 累计计数和最近失败上下文。
+- ICM42688 provider 区分首次 reset 与运行期 reinit；运行期重初始化不再清零 FIFO 累计计数，保证同一 F407 启动周期内诊断单调。
+- 预检增加 diagnostics seen 版本配对门槛；长测审计增加累计计数单调性，以及 I2C final failure、FIFO overflow/malformed/stall 的零增量门槛。
+- 新增 ADR-0020；新增 `TRB-20260719-022`，记录 Visual Studio 多配置 CTest 未执行、44 字节 fixture 断言和 MSVC modal 窗口造成的自动化阻塞。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/scripts/run_board_health_preflight.sh`
+- `mp157/outdoor-core-service/scripts/monitor_board_runtime_health.sh`
+- `mp157/outdoor-core-service/scripts/run_board_long_validation.sh`
+- `mp157/outdoor-core-service/scripts/run_board_crash_recovery_validation.sh`
+- `mp157/outdoor-core-service/scripts/audit_board_long_validation.sh`
+- `common/protocol/mcu_protocol.h`
+- `mp157/outdoor-core-service/include/mcu/mcu_status.h`
+- `mp157/outdoor-core-service/src/mcu/mcu_frame_parser.cpp`
+- `mp157/outdoor-core-service/src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/tests/mcu_protocol_tests.cpp`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/sensors/icm42688_provider_c.h/.c`
+- `scripts/deploy_mp157_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`
+- `docs/stage1_plan.md`、`docs/stage1_bringup_plan.md`
+- `docs/troubleshooting_log.md`、`docs/dev_log.md`
+- `docs/adr/0019-use-sampled-health-timeline-for-board-endurance.md`
+- `docs/adr/0020-expose-sensor-hub-diagnostics-on-uart4.md`
+
+### 验证结果
+
+- 本地 Git Bash `bash -n` 和板端五份 `sh -n` 全部通过；部署脚本真实执行 68.7 秒，11 个文件 SHA256、权限、ICM20608 systemd 服务和设备节点全部通过，输出 `deployment=PASSED`。
+- 真实 F407 状态已恢复：连续两次 8 秒预检均得到 `425 (0x01A9)`，四类 MCU 数据、ping ACK、GNSS NMEA、Board IMU 和核心 error 门槛全部通过。
+- 第一次预检自动放行 60 秒正式冒烟，完整审计通过；GNSS/MCU IMU/磁力计/气压计/Board IMU 分别约 `9.0/100.63/18.47/9.53/8.0 Hz`，日志有 3 个备份且单文件不超过 1 MiB。
+- 第二次预检自动放行 PID `4868` 的 3600 秒正式长测，证据目录为 `/run/media/mmcblk1p1/outdoor-agent-hour-final-o7GBsX`。
+- PID `4868` 运行早期出现 `558 (0x022E)` 和 `942 (0x03AE)` FIFO error/fallback，随后恢复 `425`；因为旧审计只看最终快照，已将目录标记 `ABORTED_MISSING_HEALTH_TIMELINE` 并用 SIGTERM 在 1 秒内停止，不计入小时结论。
+- Monitor POSIX 语法通过，并使用本机真实 `runtime_status.json` 验证逐秒解析 Runtime state、F407 status flags 和四个 error 字段。
+- 20 秒真实时间线冒烟保存 21 个样本，其中 20 个可评估样本只有 15 个为 `0x01A9`；审计以 `healthy_permille=750`、5 个降级样本和最终 `0x03AE` 正确返回失败，证明周期性 FIFO fallback 不再被最终快照掩盖。
+- MP157 Debug CTest 8/8、Runtime 验证脚本、ARMv7 hard-float 构建和 F407 PC CTest 5/5 通过。
+- 当前 UART4 diagnostics F407 Release 镜像构建通过：BIN 19396 B，text 19376 B、data 20 B、BSS 4408 B；该镜像尚未刷入，板端 diagnostics seen 和计数增量门槛尚未验证。
+- 首次 F407 CTest 因未指定 `-C Debug` 显示 5 个 `Not Run`；首次 MP157 diagnostics fixture 少 1 字节并触发 MSVC modal 断言。两次失败尝试、精确清理的孤儿进程、修正方式和最终返回码均记录在 `TRB-20260719-022`。
+- 当前硬件在首次运行新预检前已经恢复，未取得新脚本对真实 `0x102E` 的负向退出证据；不能将正向放行替代负向分支验证。
+
+### 后续 TODO
+
+- 部署新 ARM Runtime 并刷入 UART4 diagnostics F407 固件；短时板测读取累计计数，定位周期性 FIFO fallback 的具体来源并完成最小修复。
+- 短时诊断审计通过后，从零启动 3600 秒长测。
+- 小时级通过后执行 SIGKILL/同目录追加恢复验收。
+- 使用可控 fixture 或下次自然 `0x102E` 状态补齐预检负向分支的直接证据。
+
+## 2026-07-19 - MP157 Long Validation Harness and ICM20608 Auto-load
+
+### 本次完成
+
+- 初版 `deploy/modules-load.d/outdoor-agent.conf` 在手工重启 `systemd-modules-load` 时可恢复 ICM20608，但真实 boot 暴露其早于板厂 `link-modules.service` 执行，已撤回该配置。
+- 新增 `deploy/systemd/outdoor-agent-icm20608.service`，通过 `Requires/After=link-modules.service` 建立正确顺序；真实软重启确认服务 active/enabled、标准 modules-load Result=success、ICM20608 probe ID `0xAE` 且 `/dev/icm20608` 自动出现。
+- 新增 POSIX `scripts/run_board_long_validation.sh`，统一检查设备节点，创建独立 SD 证据目录，记录 Runtime SHA256、内核、板端时间、SD 使用量和 PID，并启动有界联合长测。
+- 使用 XMODEM-CRC 上传长测脚本，本地/板端 SHA256 均为 `cb1656fe6157e97d4f3e04b6ac3a5925a1ecea46feacc477075c9816068a067e`。
+- 新增 `audit_board_long_validation.sh` 和 `run_board_crash_recovery_validation.sh`，把 CSV schema/单调键/频率/末行、状态、ACK、健康位、日志轮转和异常退出后追加恢复固化为板端验收。
+- 初次启动 PID `2005` 的 3600 秒长测后，异常恢复脚本因 BusyBox `ps` 截断进程名而误启动第二 Runtime；该数据已明确作废。修复为 `/proc/<pid>/cmdline` 独占检测并用真实 PID 验证拒绝分支后，PID `2005` 已受控停止。
+- 使用同一 ARM Runtime 从全新目录重新启动 PID `3127` 后，实验性 COM6 `SkipReset` 打开仍触发 F407 复位，ICM42688 初始化失败并回退 `0x102E`；该第二次数据也已作废，PID `3127` 受控停止。
+- 撤回误导性的 `-SkipReset` 参数；当前等待 F407 与 3.3V 传感器完整断电上电恢复 `0x01A9`，复电前没有有效小时长测在运行。
+- MP157 软重启后将 ARM Runtime、配置和三份验证脚本部署到持久化 `/opt/outdoor-agent/{bin,config,scripts}`；本地/板端 SHA256 全部一致，脚本 `sh -n` 通过，权限收敛为可执行文件 0755、配置 0644。
+- 新增仓库级 `scripts/deploy_mp157_runtime.ps1`，封装目录创建、部署清单 XMODEM 上传、权限、旧配置清理、systemd enable/restart、SHA256 和最终状态检查；初版真实 COM9 完整执行 58.5 秒，最终十文件版本执行 66.1 秒，所有远端 SHA256、四份 shell 语法、服务和设备节点门槛通过并输出 `deployment=PASSED`。
+- 新增 `run_board_gnss_fix_validation.sh` 和合法 `mcu_mock_frames_valid.txt`，以 status/RMC/GGA/CSV 四层证据验收室外 fix；两轮真实室内负向测试帮助修正 section error 误判和负向 fixture 复用问题。
+- 按问题排查约束新增 `TRB-20260719-012` 至 `TRB-20260719-015`，并对 `TRB-20260719-010` 的 PowerShell 引号问题复发追加证据，保留所有无效启动、测试污染和恢复步骤。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/deploy/systemd/outdoor-agent-icm20608.service`
+- `scripts/deploy_mp157_runtime.ps1`
+- `mp157/outdoor-core-service/scripts/run_board_gnss_fix_validation.sh`
+- `mp157/outdoor-core-service/data/mcu_mock_frames_valid.txt`
+- `mp157/outdoor-core-service/scripts/run_board_long_validation.sh`
+- `mp157/outdoor-core-service/scripts/audit_board_long_validation.sh`
+- `mp157/outdoor-core-service/scripts/run_board_crash_recovery_validation.sh`
+- `mp157/outdoor-core-service/deploy/systemd/outdoor-agent-icm20608.service`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`
+- `docs/stage1_plan.md`、`docs/stage1_bringup_plan.md`
+- `docs/troubleshooting_log.md`、`docs/dev_log.md`
+
+### 验证结果
+
+- 长测启动前确认 SD 卡、`/dev/ttySTM1`、`/dev/ttySTM2`、`/dev/icm20608` 和 `/dev/fb0` 均存在，且无遗留 Runtime 进程。
+- 长测审计脚本通过板端 `sh -n`；用既有 20 秒数据集验证五类 CSV 字段数、严格递增键、约 `9.0/98.05/20.05/10.0/8.0 Hz` 和末行换行，旧数据集缺少长测元数据/日志时按预期返回失败。
+- 异常恢复脚本初次负向 guard 测试暴露 BusyBox `ps` 截断问题；修复后在 PID `2005` 存活时，长测/异常恢复脚本分别以 3/2 拒绝并未创建目录。
+- PID `3127` 独占启动通过，但被 COM6 控制线复位污染后作废；当前无有效 3600 秒测试，不能标记小时级验证通过。
+- 第二次 MP157 软重启后，持久化 `/opt/outdoor-agent` 部署完成；Runtime SHA256 为 `8b499705...b7f94`，三份脚本和配置均完成板端哈希/语法校验。
+- 新部署脚本完成 PowerShell 语法和非法端口保护测试，并在真实 MP157 上逐一确认六个本地/远端 SHA256、三份 `sh -n`、ICM20608 服务 active/enabled 和设备节点。
+- 本轮重新执行 MP157 Debug 构建与 CTest 8/8、`verify_runtime.ps1`、ARMv7 Release 交叉构建；F407 主机 Debug 构建与 CTest 5/5、ARM Release 固件构建，全部通过。
+- GNSS 最终负向复验：5 秒采集 45 行，Runtime 受控停止，三个核心 section 无错误，脚本仅因无 fix、无有效 RMC 坐标和无有效 GGA 质量返回 1；报告目录 `/run/media/mmcblk1p1/outdoor-agent-gnss-fix-brYOEH`。
+- 在没有打开 COM6 的前提下执行 8 秒 F407/MP157 健康探针：PID `2791` 正常停止，四类 MCU 状态、ping ACK、Board IMU 和 error 字段正常，但 `status_flags=4142 (0x102E)` 未恢复，确认仍需人工完整断电上电。
+- 本次未修改 C/C++ 代码，未重新执行 CMake/CTest；最新代码构建与 CTest 8/8 结果沿用同日前序记录。
+
+### 后续 TODO
+
+- 3600 秒结束后核验受控停止、五类 CSV 全时段频率、状态错误字段、日志轮转、SD 容量增长和 F407 累计诊断。
+- 执行进程强制终止/重启恢复测试，明确其与真实断电测试的证据边界。
+- 真实断电一致性仍需人工配合；MP157 软重启自动加载已经闭环。
+
+## 2026-07-19 - MP157 CSV History Recording and Log Rotation
+
+### 本次完成
+
+- 新增 `HistoryRecorder`，分别追加 GNSS、MCU IMU、磁力计、气压计和 Board IMU CSV。
+- 使用 GNSS valid sentence count、各 MCU sample uptime 和 Board IMU sample count 去重，并保留 host UTC、MCU uptime 和协议原始整数单位。
+- History Recorder 不注册为永不完成的 Service，保持有限文件回放可以自然退出；GNSS/MCU serial 每个合法更新后触发记录，Runtime 循环观察器覆盖 Board IMU 和 file/mock 路径。
+- 新增 `history_enabled`、`history_output_path`、`history_flush_interval_ms`、`--history` 和 `--history-output`；storage 模式下相对路径解析到 storage root。
+- Logger 新增按大小轮转，默认单文件 1 MiB、保留 3 个 `.1` 到 `.3` 备份；状态 JSON 输出 rotation/history 实际配置。
+- 新增 History Recorder 和 Logger 单元测试，并扩展 Runtime 脚本验证 storage/history 组合路径。
+- 新增 ADR-0018，记录 CSV/JSONL/SQLite 与按日期/按大小日志策略的比较、选择和风险。
+- 按排查记录约束登记测试字段误写、Board IMU 模块未加载、PowerShell 多层引号和 history 降频问题 `TRB-20260719-008` 至 `TRB-20260719-011`。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/storage/history_recorder.h`
+- `mp157/outdoor-core-service/src/storage/history_recorder.cpp`
+- `mp157/outdoor-core-service/include/log/logger.h`、`src/log/logger.cpp`
+- `mp157/outdoor-core-service/include/config/app_config.h`、`src/config/config_loader.cpp`、`config/`
+- `mp157/outdoor-core-service/include/runtime/runtime_status.h`、`src/ipc/status_publisher.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`、`CMakeLists.txt`
+- `mp157/outdoor-core-service/tests/history_recorder_tests.cpp`、`tests/logger_tests.cpp`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`、`docs/project_design.md`、`docs/stage1_plan.md`、`docs/stage1_bringup_plan.md`、`docs/repo_structure.md`
+- `docs/adr/0018-use-csv-history-and-size-based-log-rotation.md`、`docs/troubleshooting_log.md`
+
+### 验证结果
+
+- 首次 MSVC 构建因测试夹具误写 `ImuSample::accelZG` 失败；生产库和 Runtime 已完成编译。根因和修复记录在 `TRB-20260719-008`。
+- 修正为协议原始字段 `accelZMg` 后，MP157 Debug 全量构建成功，CTest 8/8 通过。
+- `powershell -ExecutionPolicy Bypass -File scripts/verify_runtime.ps1` 通过，确认五类 CSV 创建、GNSS/MCU IMU 数据行、history 状态和 rotation 配置字段。
+- ARMv7 hard-float `cmake --build build-arm` 成功，Runtime、History Recorder、Logger 和 8 个测试目标全部完成编译链接。
+- 初版 ARM Runtime 本地/板端 SHA256 均为 `26184ec8c3755a7bd97dcc989e64b21bed9b90ed83ced23e289e6ef3000cab39`；真实 MP157 60 秒双串口/Board IMU/framebuffer/SD history 联合运行正常停止，五类 CSV、status 和 dashboard 均生成，四类 MCU seen 且 ping ACK status 0。
+- 60 秒联合运行发现 MCU IMU history 约 57 Hz；`--no-dashboard` 20 秒约 65 Hz，而 COM6 原始镜像为 104.2 Hz，定位到一次 serial read 内多帧覆盖最新状态快照。
+- 增加 GNSS/MCU 合法更新逐帧回调后，修复版本地/板端 SHA256 均为 `8b4997053d32ccc364f7b5c06d1bb5a0e591fa22e1bef3bee0a6f36feb0b7f94`；真实 framebuffer 联合运行 20 秒得到 MCU IMU 1961 条约 98.1 Hz、磁力计约 20.1 Hz、气压计 10.0 Hz。
+- 真实 VFAT SD 卡 30 秒 info 日志运行生成 718 KiB 活动日志和 1.0 MiB `.1` 备份，最终 state stopped、ACK 正常，证明默认 1 MiB 大小轮转生效。
+- `/dev/icm20608` 首次预检缺失；确认是模块未加载后，`modprobe icm20608` 返回 0、probe ID 为 `0xAE` 并恢复字符设备。尚未固化开机自动加载。
+- 未在真实 MP157 SD 卡上执行小时级记录或掉电测试。
+
+### 后续 TODO
+
+- 在真实 MP157 上同时启用双串口、Board IMU、framebuffer、history 和 storage，执行至少一小时受控运行。
+- 保存 CSV 行数/频率、日志文件大小与备份、CPU/内存、状态更新时间和异常统计。
+- 执行进程强制终止与整板断电测试，评估 CSV 最后一行、flush 周期和日志轮转一致性。
+- 若后续要求无损保存 100 Hz IMU，新增有界事件队列或直接记录解码帧，并定义 overflow 策略。
+- 将 `icm20608` 加入板端自动加载配置，并在整板重启后验证 `/dev/icm20608` 自动出现。
+
+## 2026-07-19 - MP157 Cooperative Runtime Scheduler
+
+### 本次完成
+
+- 将阻塞式 `IService::run()` 改为短步骤 `poll()`，由 Runtime Manager 单线程交错推进全部活动服务。
+- 将 GNSS replay/serial、MCU mock/serial、板载 ICM20608、dashboard 和 evdev launcher 改为非阻塞或有界轮询。
+- 增加运行期状态发布回调、active/completed service 计数、SIGINT/SIGTERM 停止和 `runtime_run_seconds` 总时长限制。
+- 为持续采集统一 0 值语义：GNSS/MCU capture seconds、Board IMU sample count 和 dashboard refresh count 为 0 时常驻。
+- 新增 Runtime Manager 测试，覆盖交错调度、服务失败、停止条件、循环回调和启动失败回滚。
+- 新增 ADR-0017，并将问题原因、方案比较、验证结果和剩余板端风险回填到 `TRB-20260719-007`。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/runtime/`、`src/runtime/`
+- `mp157/outdoor-core-service/include/services/`、`src/services/`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/include/config/app_config.h`、`src/config/config_loader.cpp`、`config/`
+- `mp157/outdoor-core-service/tests/runtime_manager_tests.cpp`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `README.md`、`docs/project_design.md`、`docs/stage0_plan.md`、`docs/stage1_plan.md`、`docs/stage1_bringup_plan.md`、`docs/repo_structure.md`
+- `docs/adr/0003-runtime-service-architecture.md`、`docs/adr/0017-use-cooperative-runtime-service-scheduler.md`、`docs/troubleshooting_log.md`
+
+### 验证结果
+
+- 修改前基线：MP157 CTest 5/5、F407 CTest 5/5 通过。
+- 修改后：MP157 Debug 构建成功，CTest 6/6 通过。
+- `scripts/verify_runtime.ps1` 通过，包含 `dashboard_refresh_count = 0` 与 `runtime_run_seconds = 1` 的持续模式受控退出验证。
+- 既有 ARMv7 hard-float `build-arm` 交叉构建成功，Linux fbdev/evdev 和串口分支均完成编译。
+- 未执行真实 MP157 双串口、板载 IMU、触摸和 framebuffer 小时级联合运行，不能据此声明整机长期稳定。
+
+### 后续 TODO
+
+- 在真实 MP157 上执行小时级多设备协作运行，并保存状态文件、日志与串口统计作为 `TRB-20260719-007` 关闭证据。
+- 继续实现 SD 卡历史采样记录服务与日志轮转，控制长期运行的存储占用。
+
+## 2026-07-19 - Troubleshooting Retrospective and Recording Policy
+
+### 本次完成
+
+- 新增 `docs/troubleshooting_log.md`，建立问题索引、证据等级、状态流转、详细复盘和新问题记录模板。
+- 首批回填 2026-07-18 至 2026-07-19 F407/MP157 联调的关键问题，包括 UART4 RX 丢包、共享 I2C2 锁死、Bootloader `0xF9`、IMU 频率不足、ICM42688 不 ACK、FIFO 恢复硬化和时间戳连续性。
+- 补录 50 kHz/80 ms、1 ms 延迟和 16 字节分段 FIFO 读取等已回退实验；由于缺少独立临时固件和原始抓包，将其明确标记为 C 级证据，避免把过程回忆当作已验证结论。
+- 更新 `AGENTS.md`，要求后续问题在分析开始时建档，并完整记录无效尝试、根因证据、修复和验证，作为面试输入资料。
+
+### 修改文件
+
+- `AGENTS.md`
+- `README.md`
+- `docs/troubleshooting_log.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+
+### 验证结果
+
+- 本次仅修改 Markdown 文档，没有修改代码，因此未执行 CMake 构建和 CTest。
+- 已检查新增文档链接和问题 ID 的唯一性。
+
+### 后续 TODO
+
+- 后续遇到问题时，在分析阶段即时更新复盘表，避免仅在问题关闭后回忆补录。
+- 为小时级 I2C 耐久和故障注入测试保存原始抓包或摘要文件，并关联到对应问题 ID。
+
+## 2026-07-19 - ICM42688 FIFO Final Board Validation and Recovery Hardening
+
+### 本次完成
+
+- 整板断电上电后恢复真实 ICM42688，并完成 FIFO 配置/数据路径的板端诊断和最终 60 秒验收。
+- 启用 `FIFO_WM_GT_TH`，把 ICM42688 调整为三颗传感器中最后初始化，并将主循环 FIFO 最短读取周期设为 30 ms，避免启动积压和高频伪事件造成 I2C 事务风暴。
+- 删除不可靠的“读取后 FIFO count 未下降即 drain stall”判断；FIFO 写入可与主机读取并发，该判断会误报。
+- 增加 USART1-only `0x02` Sensor Hub diagnostics，记录 I2C 最近失败上下文、累计恢复/失败、FIFO overflow/malformed/empty/skipped 和初始化步骤；UART4/MP157 业务链路不发送该帧。
+- 将有副作用的 FIFO_DATA 读取改为不可重放事务：失败后恢复 I2C2 并 flush FIFO，普通寄存器事务仍允许单次恢复重试。
+- 修正 I2C 恢复成功判定和 heartbeat bit 14 语义：累计失败保留在诊断帧，heartbeat 只报告当前仍未恢复的事务状态。
+- 新增真实/Mock 共用的 IMU 时间轴归一化模块，批次按上一已发布样本连续锚定并保留批内间隔，消除批次回推、fallback 切换和 I2C 恢复造成的时间戳回退/大空洞。
+- `scripts/verify_f407_uart.ps1` 增加诊断帧、heartbeat 历史、时间戳异常详情和最大间隔位置输出。
+
+### 修改文件
+
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/sensors/icm42688_provider_c.*`
+- `f407/sensor-hub/firmware/sensors/imu_timestamp_normalizer_c.*`
+- `f407/sensor-hub/firmware/bsp/board_i2c.*`
+- `f407/sensor-hub/firmware/bsp/stm32/board_i2c_stm32.c`
+- `f407/sensor-hub/firmware/protocol/mcu_frame_builder_c.*`
+- `scripts/verify_f407_uart.ps1`
+- `common/protocol/mcu_protocol.h`
+- `README.md`、`docs/` 和 `f407/sensor-hub/README.md`
+
+### 验证结果
+
+- 主机 CMake/Ninja 构建和 `ctest --test-dir build-gcc --output-on-failure` 通过，5/5 tests passed；新增覆盖时间轴批次衔接和 FIFO_DATA 失败不重放/flush。
+- GNU ARM Release 构建通过：BIN 19368 B，text 19348 B、data 20 B、BSS 4424 B。
+- 最终镜像经 COM6 ROM Bootloader 多次烧录并逐字节回读通过；一次下载阶段 `0xF9` 失败未计入成功，重新进入 Bootloader 后通过。
+- 最终镜像独立烧录复位后的 10 秒回归通过：IMU `101.5 Hz`、磁力计 `19.9 Hz`、气压计 `10.0 Hz`，最大 IMU 时间戳间隔 10 ms，最终 `0x01A9`。
+- 最终独立烧录复位后的 60 秒抓取通过：7988 帧，heartbeat 60、IMU 6086、磁力计 1187、气压计 595；频率约 `101.43/19.78/9.92 Hz`，最终 `0x01A9`，CRC/协议/载荷错误、时间戳回退和 UART4/USART1 TX overflow 均为 0。
+- 长测诊断累计记录 I2C recovery 100、最终失败 1、FIFO overflow/malformed 各 10；这些事件均已自愈，最终 heartbeat 的 FIFO/I2C 当前错误位均为 0。该计数提示共享 I2C2 仍需小时级和物理层故障注入验证，不能解读为总线零瞬态错误。
+- MP157 `/dev/ttySTM1` 最终复验：heartbeat/IMU/magnetometer/barometer 均 seen，`status_flags=425 (0x01A9)`；`command_ack_seen=true`、status 0、nonce `0x50494E47`。
+
+### 后续 TODO
+
+- 执行小时级持续运行、SDA 卡住和传感器断线/复接故障注入，重点观察共享 I2C2 累计恢复率。
+- 只有出现真实 TX 队列溢出或更高持续带宽需求时，再评估 UART DMA。
+
+## 2026-07-19 - ICM42688 FIFO and Interrupt-Driven UART TX Queues
+
+### 本次完成
+
+- 将 ICM42688 从读取最新 14 字节寄存器改为 byte-count FIFO：启用 accel/gyro/temperature、64 字节 watermark、stream-to-FIFO，以及 threshold/full INT1。
+- 新增可变 FIFO 包解析：发布 16 字节 accel+gyro 包，跳过并在批次时间轴中保留 8 字节单传感器包，忽略消息头；最多一次读取 256 字节、发布 16 个样本。
+- 对 overflow、畸形/截断包和输出容量不足执行 flush，并增加错误计数和 heartbeat 诊断位；后续实测删除了并发增长下会误报的 drain-stall 启发式判断。
+- UART4 与 USART1 各新增 1024 字节固定 TX 队列，使用 `HAL_UART_Transmit_IT()` 和 TX complete callback 非阻塞 drain；队列空间不足时整帧拒绝。
+- 保留 UART4 64 字节 RX 中断环形缓冲，并增加 TX/RX 丢弃、ICM 初始化和 I2C 运行期失败诊断。
+- I2C 超时从 20 ms 调整为 30 ms；传感器初始化完成后清零诊断，避免 BMP390 备用地址探测的预期 NACK 污染运行期故障位。
+- 修正 Mock IMU、MMC5603 和 BMP390 在长事务/重初始化后按旧 deadline 追赶补发的问题；Mock 输出统一到一个 10 ms 调度点，FIFO 错误/INT 噪声只更新状态而不再额外发送，避免同一 uptime 重复发布。
+- 删除未被调用的 PC mock C++ `Icm42688Driver` 占位接口，新增 ADR-0016。
+
+### 修改文件
+
+- `docs/adr/0016-use-icm42688-fifo-and-interrupt-uart-tx-queues.md`
+- `f407/sensor-hub/firmware/sensors/icm42688_fifo_parser_c.*`
+- `f407/sensor-hub/firmware/sensors/icm42688_provider_c.*`
+- `f407/sensor-hub/firmware/bsp/uart_tx_queue_c.*`
+- `f407/sensor-hub/firmware/bsp/stm32/board_uart_stm32.c`
+- `f407/sensor-hub/firmware/bsp/board_i2c.*`
+- `f407/sensor-hub/firmware/bsp/stm32/board_i2c_stm32.c`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/tests/icm42688_fifo_parser_test.cpp`
+- `f407/sensor-hub/tests/icm42688_provider_test.cpp`
+- `f407/sensor-hub/tests/uart_tx_queue_test.cpp`
+- `scripts/verify_f407_uart.ps1`
+- `README.md`、`docs/` 和 `f407/sensor-hub/README.md` 的相关状态说明
+
+### 验证结果
+
+- `cmake -S f407/sensor-hub -B f407/sensor-hub/build` 和主机构建通过。
+- `ctest --test-dir f407/sensor-hub/build -C Debug --output-on-failure --timeout 10` 通过，5/5 tests passed；新增 provider 测试覆盖 FIFO/INT 寄存器配置、批量读取时间轴、full/超量、畸形包、并发增长和伪中断路径。
+- 当时复电前诊断固件 text 22108 B、data 20 B、BSS 4384 B，BIN 22128 B；最终板测镜像尺寸见上方“Final Board Validation”条目。
+- 初步板端探索曾得到约 99 Hz、无时间戳回退的输出，但 heartbeat 为 `0x102E` 且 IMU 数值来自 Mock fallback；初始化阶段诊断表明 ICM42688 已不再 ACK，因此该结果不计为 FIFO 真实传感器验收。
+- 复电前 22128 B 诊断版本烧录和逐字节回读通过；10 秒 COM6 抓取收到 1290 帧，IMU `97.8 Hz`、磁力计 `20.1 Hz`、气压计 `10.1 Hz`，CRC/协议/长度错误均为 0，IMU 时间戳无回退且最大间隔 51 ms，UART4/USART1 TX overflow 均为 false。heartbeat 为 `0x502E`，确认未经历整板断电的 ICM42688 仍不 ACK，因此 Mock fallback 不能计为 FIFO 验收。
+- MP157 `/dev/ttySTM1` 原始抓取收到 4096 字节连续 MCU 帧；ARM Runtime 同时看到 heartbeat、IMU、磁力计、气压计，并收到 `command_ping -> command_ack`，ack status 为 0、nonce 为 `0x50494E47`。该结果验证了 UART4 TX 队列、RX 环形缓冲和 ack TX 路径。
+- USART1/COM6 镜像抓取和 MP157 UART4 主链路均已验证；真实 FIFO 验收已在上方最终条目完成。
+
+### 后续 TODO
+
+- 整板复电、真实 FIFO 60 秒和独立复位验收已在上方最终条目完成；后续执行小时级运行和故障注入。
+
+## 2026-07-19 - ICM42688 INT1 Trigger and Sensor Filtering
+
+### 本次完成
+
+- 将 PB12 从普通输入改为上升沿 EXTI12，ICM42688 配置为 INT1 脉冲、推挽、高有效，并将 100 Hz UI data-ready 路由到 INT1。
+- EXTI ISR 只累计事件；主循环合并积压事件后执行 I2C burst read，避免在中断上下文调用阻塞 HAL I2C。
+- 增加 heartbeat bit 7 `0x0080`；三颗传感器 ready 且近期 INT1 活动时为 `0x00A9`。
+- 增加 250 ms INT1 超时、Mock IMU fallback、连续读取失败计数和 1 秒 ICM42688 重新初始化路径。
+- ICM42688 内部 UI LPF 配置为约 25 Hz；新增定点一阶 IIR，IMU accel/gyro 与磁力计 `alpha=1/4`，IMU 温度和 BMP390 压力/温度 `alpha=1/8`。
+- 新增滤波单元测试和 ADR-0015；MMC5603 继续 20 Hz 轮询，BMP390 继续 10 Hz 轮询。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0015-use-icm42688-int1-and-fixed-point-filtering.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/mcu_protocol.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `f407/sensor-hub/CMakeLists.txt`
+- `f407/sensor-hub/README.md`
+- `f407/sensor-hub/tests/sensor_sample_filter_test.cpp`
+- `f407/sensor-hub/firmware/CMakeLists.txt`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/bsp/board_icm42688_gpio.c`
+- `f407/sensor-hub/firmware/bsp/board_icm42688_gpio.h`
+- `f407/sensor-hub/firmware/bsp/stm32/board_icm42688_gpio_stm32.c`
+- `f407/sensor-hub/firmware/sensors/icm42688_provider_c.c`
+- `f407/sensor-hub/firmware/sensors/sensor_sample_filter_c.c`
+- `f407/sensor-hub/firmware/sensors/sensor_sample_filter_c.h`
+- `f407/sensor-hub/firmware/stm32cube/atk_f407_sensorhub.ioc`
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/stm32f4xx_it.h`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/gpio.c`
+- `scripts/verify_f407_uart.ps1`
+
+### 验证结果
+
+- F407 ARM 交叉构建通过：20356 B Flash、2264 B RAM。
+- 首次 COM6 下载在写入阶段收到异常响应 `0xF9`，该次未计为成功；重新进入 ROM Bootloader、重新擦写后，20356 字节固件逐字节回读校验通过，Bootloader version `0x31`、chip ID `0x0413`。
+- 60 秒 COM6 抓取 7412 帧：heartbeat 60、IMU 5547、磁力计 1203、气压计 602。
+- 实测频率：IMU `92.45 Hz`、磁力计 `20.05 Hz`、气压计 `10.03 Hz`；最终 heartbeat `0x00A9`，`icm42688_int1_active=true`。
+- CRC、协议版本、载荷长度、时间戳和物理范围检查均通过。
+- F407 PC CTest 2/2 通过；滤波测试覆盖首样本直通、正负阶跃和重置行为。
+- 随后三次独立复位的 10 秒 INT1 回归均通过，最终 heartbeat 均为 `0x00A9`；三路滤波输出均持续变化，CRC 和协议错误均为 0。
+
+### 后续 TODO
+
+- ICM42688 FIFO 和 UART4/USART1 非阻塞 TX 队列已在后续同日条目实现；真实板端回归仍待完成。
+- 根据姿态融合场景增加可配置滤波参数或独立 raw 数据通道。
+
+## 2026-07-19 - F407 I2C2 Sensor Interaction Recovery
+
+### 本次完成
+
+- 扩展 COM6 验收脚本，完整解码 ICM42688 IMU、MMC5603 磁力计和 BMP390 气压计帧，并检查频率、CRC、协议字段、时间戳、ready/error 位和宽范围物理合理性。
+- 30 秒持续抓包复现共享 I2C2 运行期锁死：最终 heartbeat 从 `0x0029` 变为 `0x0056`，三颗真实传感器同时停止上报。
+- 在 I2C2 BSP 增加 HAL 去初始化、外设硬复位、最多 18 个 SCL 释放脉冲、STOP 和单次原事务重试。
+- 新增 ADR-0014，记录恢复方案比较、边界和后续诊断 TODO。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0014-recover-i2c2-after-runtime-errors.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `f407/sensor-hub/README.md`
+- `f407/sensor-hub/firmware/bsp/stm32/board_i2c_stm32.c`
+- `f407/sensor-hub/firmware/stm32cube/Core/Inc/i2c.h`
+- `f407/sensor-hub/firmware/stm32cube/Core/Src/i2c.c`
+- `scripts/verify_f407_uart.ps1`
+
+### 验证结果
+
+- F407 ARM 交叉构建通过，当前固件使用 18808 B Flash、2096 B RAM。
+- COM6 ROM Bootloader 烧录 18808 字节并逐字节回读校验通过，Bootloader version `0x31`、chip ID `0x0413`。
+- 修复后 60 秒持续抓取 7532 帧：heartbeat 60、IMU 5666、磁力计 1204、气压计 602；最终 heartbeat 为 `0x0029`。
+- 随后两次独立复位的 30 秒回归均通过，最终 heartbeat 均为 `0x0029`，三路数据未再次停发。
+- 实测频率：IMU `94.43 Hz`、磁力计 `20.07 Hz`、气压计 `10.03 Hz`；CRC、协议版本、载荷长度、时间戳和数据合理性检查均通过。
+- F407 PC mock CTest 使用 `-C Debug` 运行，1/1 通过。首次未带 `-C Debug` 的 CTest 调用因 Visual Studio 多配置生成器未选择配置而未运行测试，不属于用例失败。
+
+### 后续 TODO
+
+- 增加 I2C 自动恢复计数和最近 HAL error code，供 heartbeat 或独立诊断状态读取。
+- 补充多次冷启动、小时级耐久和 SDA 卡住故障注入测试。
+
+## 2026-07-18 - F407/MP157 Bidirectional Board Validation
+
+### 本次完成
+
+- 使用 F407 COM6 和 MP157 COM9 完成 UART4 PC10/PC11 与 USART3 PD9/PD8 的真实双向联调。
+- 定位到 F407 UART4 RX 的零超时主循环轮询会在阻塞式传感器帧发送期间丢失连续 `command_ping` 字节。
+- 将 UART4 RX 改为 HAL 单字节中断接收和固定 64 字节环形缓冲，保留主循环中的命令 decoder。
+- 新增 `scripts/send_xmodem.ps1`，通过 MP157 console 调用板端 `rx` 完成 XMODEM-CRC 上传，并自动去除 128 字节分组产生的尾部填充。
+- 新增 ADR-0013，记录 UART4 轮询、IRQ 环形缓冲和 DMA 三种方案的取舍。
+
+### 修改文件
+
+- `README.md`
+- `docs/adr/0013-use-uart4-interrupt-rx-ring-buffer.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage1_bringup_plan.md`
+- `docs/stage1_plan.md`
+- `f407/sensor-hub/README.md`
+- `f407/sensor-hub/firmware/app/sensor_hub_app.c`
+- `f407/sensor-hub/firmware/bsp/board_uart.c`
+- `f407/sensor-hub/firmware/bsp/board_uart.h`
+- `f407/sensor-hub/firmware/bsp/stm32/board_uart_stm32.c`
+- `mp157/outdoor-core-service/README.md`
+- `scripts/send_xmodem.ps1`
+
+### 验证结果
+
+- F407 固件交叉构建通过，当前 Debug 固件使用 18156 B Flash、2096 B RAM。
+- COM6 UART Bootloader 烧录通过：version `0x31`、chip ID `0x0413`、18156 字节写入和逐字节回读校验成功。
+- COM6 诊断镜像 3 秒抓取 378 帧：heartbeat 3、IMU 285、CRC 错误 0；最终传感器 ready heartbeat 为 `status_flags=0x0029`。
+- 修复前，MP157 连续发送三个合法 ping 均没有 ACK；修复后连续三个 ping 均返回 `command_ack`，`status=0`、nonce `0x50494E47`。
+- 当前 ARM Runtime 通过 XMODEM-CRC 上传到 MP157；可执行文件 SHA256 为 `0fa01c5199a903b43bf60c09c4cefb11c122015233f4c72a059d3b2cd5b600c5`，与本地一致。
+- MP157 Runtime 返回 0，`runtime_status.json` 确认 `heartbeat_seen=true`、`imu_seen=true`、`magnetometer_seen=true`、`barometer_seen=true`、`status_flags=41`、`command_ack_seen=true`、`command_ack_request_type=128`、`command_ack_status=0`、`command_ack_nonce=1346981447`。
+- XMODEM 脚本使用 341 字节 NMEA 文件复测，板端文件大小和 SHA256 `ec8c232aacb1b829cb0cc1d514713e3e61f92fe2ecc5bb3d744cbca724bb6a6d` 与本地一致。
+- MP157 本机构建通过，CTest 5/5 通过，`verify_runtime.ps1` 通过，ARM 交叉构建通过。
+- F407 PC mock 构建通过，CTest 1/1 通过。
+
+### 后续 TODO
+
+- 增加 UART4 RX overflow/error 计数，并做长时间双向压力测试。
+- 验证多次冷启动和 I2C 瞬时错误恢复稳定性。
+- MP157 板端系统时间当前仍为 2020 年，需要后续配置 RTC/NTP 或启动校时。
+
+## 2026-07-05 - MP157 APP Launcher Touch Start
+
+### 本次完成
+
+- `DashboardService` 新增轻量 fbdev/evdev APP launcher：启动时先绘制中央 `OUTDOOR AGENT` 图标/磁贴，点击后进入原有 framebuffer dashboard。
+- 新增 `launcher_enabled`、`launcher_input_device` 和 `launcher_auto_start_seconds` 配置项，并提供 `--launcher`、`--no-launcher`、`--launcher-input-device`、`--launcher-auto-start-seconds` 命令行覆盖项。
+- `config/outdoor_agent_app.conf` 默认开启 launcher，`config/runtime.conf` 默认关闭 launcher，避免影响 PC 文本验证路径。
+- launcher 等待逻辑支持 `BTN_TOUCH`、`ABS_MT_TRACKING_ID` 和仅坐标上报的触摸帧；可点击区域扩大到 APP 图标/磁贴区域，便于 7 英寸屏手指操作。
+
+### 修改文件
+
+- `README.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/config/runtime.conf`
+- `mp157/outdoor-core-service/config/outdoor_agent_app.conf`
+- `mp157/outdoor-core-service/include/config/app_config.h`
+- `mp157/outdoor-core-service/include/services/dashboard_service.h`
+- `mp157/outdoor-core-service/src/config/config_loader.cpp`
+- `mp157/outdoor-core-service/src/main.cpp`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+
+### 验证结果
+
+- `cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build` 通过。
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过，5/5 tests passed。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过。
+- `git diff --check` 通过。
+- `cmake --build mp157/outdoor-core-service/build-arm` 通过。
+- 通过 COM3 + XMODEM checksum 模式上传最终验证包到 MP157；板端解包后 `outdoor_core_runtime` SHA256 为 `0fa01c5199a903b43bf60c09c4cefb11c122015233f4c72a059d3b2cd5b600c5`，与本地 ARM 构建一致。
+- 板端确认 Goodix 触摸设备节点为 `/dev/input/touchscreen0 -> event0`。
+- 板端运行 `./scripts/run_outdoor_agent_app.sh --launcher-auto-start-seconds 2 --dashboard-refresh-count 1 --log-level info` 返回 `FINAL_AUTOSTART_DONE:0`；日志确认 `Launcher waiting for icon tap on /dev/input/touchscreen0`、`Launcher auto-start timeout reached` 和 `Dashboard rendered to framebuffer: /dev/fb0`。
+- 板端重新执行无自动超时真实点击复测通过：串口日志出现 `Launcher icon tapped at x=530, y=292`，随后 `Dashboard rendered: runtime/dashboard.txt`、`Dashboard rendered to framebuffer: /dev/fb0`，最终 `TOUCH_RETEST_DONE:0`。
+
+### 后续 TODO
+
+- 后续若需要多 APP 或返回主页，再将 launcher 从 `DashboardService` 中拆分为独立 UI 状态机。
+- 后续若扩展多个可点击控件，需要补充触摸坐标校准、屏幕旋转适配和 UI 状态机测试。
+
+## 2026-07-05 - outdoor-agent APP Icon Display
+
+### 本次完成
+
+- 在 `outdoor-agent` framebuffer 主界面左上角新增明确的程序图标显示，图标采用轻量 fbdev primitive 绘制，不引入第三方 GUI 或图片依赖。
+- 调整左侧标题区布局，使程序图标、`OUTDOOR / AGENT / APP` 文本都位于侧栏标题框内。
+- 文本 dashboard 新增 `app_icon: outdoor-agent compass mark` 和 `app_icon_visible: true`，用于 PC 自动化验证主界面图标能力。
+- `verify_runtime.ps1` 新增默认 dashboard 与 APP profile dashboard 的图标标记检查。
+- 通过 COM3 将当前 ARM Runtime 和 APP 配置打包部署到 MP157，并完成 `/dev/fb0` UI 显示验证。
+
+### 修改文件
+
+- `README.md`
+- `docs/changelog.md`
+- `docs/dev_log.md`
+- `docs/project_design.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+
+### 验证结果
+
+- `cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build` 通过。
+- `cmake --build mp157/outdoor-core-service/build` 通过。
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure` 通过，5/5 tests passed。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1` 通过。
+- `git diff --check` 通过。
+- `cmake --build mp157/outdoor-core-service/build-arm` 通过，当前 ARM Runtime SHA256 为 `f3fee04a5d86cdea7de7e24b81e4874f981d7ee3ab967438d1c16c88593ec812`。
+- MP157 COM3 上板确认：`/dev/fb0` 存在，`virtual_size=1024,600`，`bits_per_pixel=16`。
+- 通过 XMODEM checksum 模式上传验证包到 `/tmp/ai_outdoor_ui_pkg.tar.gz`；解压后的 `outdoor_core_runtime` 与本地 ARM Runtime SHA256 一致。
+- 板端运行 `./outdoor_core_runtime --config config/outdoor_agent_app.conf --dashboard-refresh-count 2 --dashboard-refresh-interval-ms 300 --log-level info` 返回 `RUNTIME_EXIT:0`，日志确认 `Dashboard rendered to framebuffer: /dev/fb0` 输出 2 次。
+- 板端运行 `./scripts/run_outdoor_agent_app.sh --dashboard-refresh-count 1 --dashboard-refresh-interval-ms 100 --log-level info` 返回 `APP_SCRIPT_EXIT:0`，确认脚本入口可写入 `/dev/fb0`。
+- 板端 `runtime/dashboard.txt` 可见 `outdoor-agent`、`app_icon_visible: true`、`ai_agent_state: planned`、`source: file` 和 `source: icm20608_char`。
+- `/dev/fb0` 前 64 KiB 样本 SHA256 为 `ee8558205ec95c0b10fd8ef06e9b756e70d78a4a5740ca80f7ea259293b9ba9d`，非零字节数 `58232`。
+
+### 后续 TODO
+
+- 后续如接入触摸或桌面环境，再评估是否需要外部 bitmap 图标资源。
+
+## 2026-06-29 - outdoor-agent APP Process Entry
+
+### 本次完成
+
+- 新增 MP157 屏幕侧 `outdoor-agent` APP 配置 `config/outdoor_agent_app.conf`，默认以 `dashboard_output_mode = both` 同时输出文本 dashboard 和 `/dev/fb0` framebuffer。
+- 新增 `scripts/run_outdoor_agent_app.sh`，板端可直接启动 `./outdoor_core_runtime --config config/outdoor_agent_app.conf`。
+- 将 `dashboard_refresh_count = 0` 定义为 dashboard 常驻刷新模式，使 framebuffer 仪表盘可以作为进程持续显示。
+- 保留 `config/runtime.conf` 的文本/单次刷新默认行为，避免影响 PC 开发和自动化验证。
+- `verify_runtime.ps1` 新增 APP 配置烟测：使用 APP 配置，但覆盖为文本输出和单次刷新，验证配置可加载且不会访问 PC 环境不存在的 `/dev/fb0`。
+
+### 修改文件
+
+- `README.md`
+- `docs/project_design.md`
+- `docs/repo_structure.md`
+- `docs/stage1_plan.md`
+- `mp157/outdoor-core-service/README.md`
+- `mp157/outdoor-core-service/config/outdoor_agent_app.conf`
+- `mp157/outdoor-core-service/scripts/run_outdoor_agent_app.sh`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `mp157/outdoor-core-service/src/services/dashboard_service.cpp`
+
+### 验证结果
+
+- `cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build`
+- `cmake --build mp157/outdoor-core-service/build`
+- `ctest --test-dir mp157/outdoor-core-service/build -C Debug --output-on-failure`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- 本轮按任务要求未进行 MP157 `/dev/fb0` 上板验证。
+
+### 后续 TODO
+
+- 上板运行 `./scripts/run_outdoor_agent_app.sh`，确认 7 英寸 RGB 屏持续显示 `outdoor-agent`。
+- 将 Runtime Manager 从顺序模型演进为可并发运行的服务模型，使 GNSS/MCU/Board IMU 长期采集和 dashboard 常驻刷新同时工作。
+
 ## 2026-06-29 - F407 I2C Sensor Revalidation Snapshot
 
 ### 本次完成

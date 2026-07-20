@@ -4,11 +4,17 @@ $serviceRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $output = Join-Path $serviceRoot "outdoor_core_runtime_verify.exe"
 $statusOutput = Join-Path $serviceRoot "runtime\runtime_status_verify.json"
 $edgeStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_edge_verify.json"
+$continuousStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_continuous_verify.json"
+$compassStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_compass_verify.json"
 $dashboardOutput = Join-Path $serviceRoot "runtime\dashboard_verify.txt"
+$compassDashboardOutput = Join-Path $serviceRoot "runtime\dashboard_compass_verify.txt"
+$dashboardAppOutput = Join-Path $serviceRoot "runtime\dashboard_app_verify.txt"
+$continuousDashboardOutput = Join-Path $serviceRoot "runtime\dashboard_continuous_verify.txt"
 $storageRoot = Join-Path $serviceRoot "runtime\storage_verify"
 $storageStatusOutput = Join-Path $storageRoot "status\runtime_status.json"
-$storageDashboardOutput = Join-Path $storageRoot "dashboard\dashboard.txt"
-$storageLogOutput = Join-Path $storageRoot "logs\outdoor_core_runtime.log"
+    $storageDashboardOutput = Join-Path $storageRoot "dashboard\dashboard.txt"
+    $storageLogOutput = Join-Path $storageRoot "logs\outdoor_core_runtime.log"
+    $historyRoot = Join-Path $storageRoot "data\history"
 
 function Remove-TemporaryFile {
     param (
@@ -53,6 +59,7 @@ try {
         "src\mcu\mcu_frame_stream_decoder.cpp" `
         "src\mcu\mcu_protocol.cpp" `
         "src\mcu\mcu_status.cpp" `
+        "src\navigation\compass_estimator.cpp" `
         "src\runtime\runtime_manager.cpp" `
         "src\runtime\runtime_status.cpp" `
         "src\sensors\icm20608_char_reader.cpp" `
@@ -63,6 +70,7 @@ try {
         "src\services\icm20608_service.cpp" `
         "src\services\mcu_mock_service.cpp" `
         "src\services\mcu_serial_service.cpp" `
+        "src\storage\history_recorder.cpp" `
         -o $output
 
     $defaultOutput = & $output --config "config\runtime.conf" --status-output $statusOutput --dashboard-output $dashboardOutput --log-level debug 2>&1
@@ -89,6 +97,14 @@ try {
 
     if ($statusText -notmatch '"service_count": 3') {
         throw "runtime status output did not report service count"
+    }
+
+    if ($statusText -notmatch '"active_service_count": 0') {
+        throw "runtime status output did not report zero active services after stop"
+    }
+
+    if ($statusText -notmatch '"completed_service_count": 3') {
+        throw "runtime status output did not report all services completed"
     }
 
     if ($statusText -notmatch '"gnss": \{') {
@@ -147,6 +163,14 @@ try {
         throw "runtime status output did not report parsed IMU acceleration"
     }
 
+    if ($statusText -notmatch '"compass": \{') {
+        throw "runtime status output did not contain compass status object"
+    }
+
+    if ($statusText -notmatch '"calibration_applied": false') {
+        throw "runtime status output did not preserve uncalibrated compass quality"
+    }
+
     if (($defaultOutput -join "`n") -notmatch "MCU frame CRC mismatch") {
         throw "default runtime output did not report invalid MCU CRC"
     }
@@ -160,12 +184,110 @@ try {
         throw "dashboard output did not contain title"
     }
 
+    if ($dashboardText -notmatch "app_icon_visible: true") {
+        throw "dashboard output did not report APP icon visibility"
+    }
+
     if ($dashboardText -notmatch "u-blox M10") {
         throw "dashboard output did not contain GNSS section"
     }
 
     if ($dashboardText -notmatch "AI Local Agent") {
         throw "dashboard output did not contain AI agent placeholder"
+    }
+
+    if ($dashboardText -notmatch "\[Compass\]") {
+        throw "dashboard output did not contain compass section"
+    }
+
+    $compassOutput = & $output `
+        --config "config\runtime.conf" `
+        --mcu-mock-input "data\mcu_mock_frames_compass.txt" `
+        --status-output $compassStatusOutput `
+        --dashboard-output $compassDashboardOutput `
+        --dashboard-refresh-count 32 `
+        --dashboard-refresh-interval-ms 0 `
+        --log-level warn 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "focused compass runtime execution failed"
+    }
+
+    $compassStatus = Get-Content $compassStatusOutput -Raw | ConvertFrom-Json
+    if (!$compassStatus.compass.valid) {
+        throw "focused runtime did not report a valid compass estimate: $($compassStatus.compass.last_error)"
+    }
+    if (!$compassStatus.compass.tilt_compensated) {
+        throw "focused runtime did not report tilt compensation"
+    }
+    if ($compassStatus.compass.calibration_applied) {
+        throw "focused runtime incorrectly reported default calibration as applied"
+    }
+    if ($compassStatus.compass.quality -ne "uncalibrated") {
+        throw "focused runtime did not mark the default compass estimate uncalibrated"
+    }
+    if ($compassStatus.compass.heading_degrees -lt 0.0 `
+        -or $compassStatus.compass.heading_degrees -ge 360.0) {
+        throw "focused runtime reported heading outside [0, 360)"
+    }
+
+    $compassDashboardText = Get-Content $compassDashboardOutput -Raw
+    if ($compassDashboardText -notmatch "tilt_compensated: true") {
+        throw "focused dashboard did not report a tilt-compensated compass estimate"
+    }
+
+    $continuousOutput = & $output `
+        --config "config\runtime.conf" `
+        --status-output $continuousStatusOutput `
+        --dashboard-output $continuousDashboardOutput `
+        --dashboard-refresh-count 0 `
+        --dashboard-refresh-interval-ms 20 `
+        --runtime-run-seconds 1 `
+        --log-level warn 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "continuous cooperative runtime execution failed"
+    }
+
+    if (!(Test-Path $continuousStatusOutput)) {
+        throw "continuous runtime status output file was not created"
+    }
+
+    if (!(Test-Path $continuousDashboardOutput)) {
+        throw "continuous dashboard output file was not created"
+    }
+
+    $continuousStatusText = Get-Content $continuousStatusOutput -Raw
+    if ($continuousStatusText -notmatch '"state": "stopped"') {
+        throw "continuous runtime did not stop cleanly at the configured duration"
+    }
+
+    if ($continuousStatusText -notmatch '"completed_service_count": 2') {
+        throw "continuous runtime did not complete both finite input services"
+    }
+
+    if ($continuousStatusText -notmatch '"active_service_count": 0') {
+        throw "continuous runtime did not stop the active dashboard service"
+    }
+
+    $appOutput = & $output --config "config\outdoor_agent_app.conf" --status-output $statusOutput --dashboard-output $dashboardAppOutput --dashboard-output-mode text --dashboard-refresh-count 1 --log-level warn 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "outdoor-agent app profile execution failed"
+    }
+
+    if (!(Test-Path $dashboardAppOutput)) {
+        throw "outdoor-agent app profile dashboard output file was not created"
+    }
+
+    $dashboardAppText = Get-Content $dashboardAppOutput -Raw
+    if ($dashboardAppText -notmatch "outdoor-agent") {
+        throw "outdoor-agent app profile output did not contain title"
+    }
+
+    if ($dashboardAppText -notmatch "app_icon_visible: true") {
+        throw "outdoor-agent app profile output did not report APP icon visibility"
+    }
+
+    if (($appOutput -join "`n") -match "failed to open framebuffer") {
+        throw "outdoor-agent app profile verification attempted framebuffer output"
     }
 
     $edgeOutput = & $output --config "config\runtime.conf" --input "data\nmea_edge_cases.txt" --status-output $edgeStatusOutput --dashboard-output $dashboardOutput --log-level debug 2>&1
@@ -199,7 +321,7 @@ try {
         Remove-Item -LiteralPath $storageRoot -Recurse -Force
     }
 
-    $storageOutput = & $output --config "config\runtime.conf" --storage-root $storageRoot --log-level info 2>&1
+    $storageOutput = & $output --config "config\runtime.conf" --storage-root $storageRoot --history --log-level info 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "storage runtime execution failed"
     }
@@ -216,6 +338,21 @@ try {
         throw "storage log output file was not created"
     }
 
+    $historyFiles = @("gnss.csv", "mcu_imu.csv", "magnetometer.csv", "barometer.csv", "board_imu.csv")
+    foreach ($historyFile in $historyFiles) {
+        if (!(Test-Path (Join-Path $historyRoot $historyFile))) {
+            throw "history output file was not created: $historyFile"
+        }
+    }
+
+    if ((Get-Content (Join-Path $historyRoot "gnss.csv")).Count -le 1) {
+        throw "GNSS history output did not contain data records"
+    }
+
+    if ((Get-Content (Join-Path $historyRoot "mcu_imu.csv")).Count -le 1) {
+        throw "MCU IMU history output did not contain data records"
+    }
+
     $storageStatusText = Get-Content $storageStatusOutput -Raw
     if ($storageStatusText -notmatch '"storage": \{') {
         throw "storage status output did not contain storage object"
@@ -223,6 +360,26 @@ try {
 
     if ($storageStatusText -notmatch '"enabled": true') {
         throw "storage status output did not report enabled storage"
+    }
+
+    if ($storageStatusText -notmatch '"history_enabled": true') {
+        throw "storage status output did not report enabled history recording"
+    }
+
+    if ($storageStatusText -notmatch '"log_backup_count": 3') {
+        throw "storage status output did not report log rotation settings"
+    }
+
+    if ($storageStatusText -notmatch '"log_rotation_failure_count": 0') {
+        throw "storage status output did not report zero log rotation failures"
+    }
+
+    if ($storageStatusText -notmatch '"log_write_failure_count": 0') {
+        throw "storage status output did not report zero log write failures"
+    }
+
+    if ($storageStatusText -notmatch '"log_last_error": ""') {
+        throw "storage status output reported a logger error"
     }
 
     if (($storageOutput -join "`n") -notmatch "Storage enabled: true") {
@@ -241,7 +398,12 @@ try {
     Remove-TemporaryFile $output
     Remove-TemporaryFile $statusOutput
     Remove-TemporaryFile $edgeStatusOutput
+    Remove-TemporaryFile $continuousStatusOutput
+    Remove-TemporaryFile $compassStatusOutput
     Remove-TemporaryFile $dashboardOutput
+    Remove-TemporaryFile $compassDashboardOutput
+    Remove-TemporaryFile $dashboardAppOutput
+    Remove-TemporaryFile $continuousDashboardOutput
     if (Test-Path $storageRoot) {
         Remove-Item -LiteralPath $storageRoot -Recurse -Force
     }
