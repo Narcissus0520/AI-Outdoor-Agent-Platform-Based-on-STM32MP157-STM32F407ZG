@@ -48,6 +48,7 @@ if ([string]::IsNullOrWhiteSpace($RuntimeServiceConfigPath)) {
 }
 
 $xmodemScript = Join-Path $PSScriptRoot "send_xmodem.ps1"
+$batchingHelperPath = Join-Path $PSScriptRoot "board_command_batching.ps1"
 $servicePath = Join-Path $repoRoot "mp157/outdoor-core-service/deploy/systemd/outdoor-agent-icm20608.service"
 $runtimeServicePath = Join-Path $repoRoot "mp157/outdoor-core-service/deploy/systemd/outdoor-agent-runtime.service"
 $supervisionVerifierPath = Join-Path $repoRoot "mp157/outdoor-core-service/scripts/verify_runtime_supervision.ps1"
@@ -63,6 +64,8 @@ $nmeaSamplePath = Join-Path $repoRoot "mp157/outdoor-core-service/data/nmea_samp
 $mcuMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data/mcu_mock_frames.txt"
 $mcuValidMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data/mcu_mock_frames_valid.txt"
 $mcuCompassMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data/mcu_mock_frames_compass.txt"
+
+. $batchingHelperPath
 
 $localFiles = @(
     @{ Local = $RuntimePath; Remote = "$InstallRoot/bin/outdoor_core_runtime"; Mode = "0755" },
@@ -155,6 +158,23 @@ function Invoke-BoardCommand {
     }
 }
 
+function Invoke-BoardCommandBatches {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Commands,
+        [int]$TimeoutSeconds = 15,
+        [int]$MaximumLength = 600
+    )
+
+    $results = @()
+    foreach ($batch in @(Split-BoardCommandBatches `
+        -Commands $Commands `
+        -MaximumLength $MaximumLength)) {
+        $results += Invoke-BoardCommand -Command $batch -TimeoutSeconds $TimeoutSeconds
+    }
+    return $results
+}
+
 Write-Host "Creating persistent MP157 deployment directories under $InstallRoot."
 [void](Invoke-BoardCommand -Command "install -d -m 0755 $InstallRoot/bin $InstallRoot/config $InstallRoot/data $InstallRoot/scripts $InstallRoot/tests")
 
@@ -168,7 +188,7 @@ foreach ($entry in $localFiles) {
 }
 
 $modeCommands = $localFiles | ForEach-Object { "chmod $($_.Mode) $($_.Remote)" }
-[void](Invoke-BoardCommand -Command ($modeCommands -join '; '))
+[void](Invoke-BoardCommandBatches -Commands $modeCommands)
 
 Write-Host "Installing the Runtime unit and starting the ordered ICM20608 loader unit."
 $serviceCommands = @(
@@ -189,20 +209,22 @@ if ($StartRuntimeService) {
         'i=0; while [ "$i" -lt 10 ]; do if /opt/outdoor-agent/bin/outdoor_status_query /run/outdoor-agent/outdoor_core.sock >/dev/null 2>&1; then break; fi; i=$((i + 1)); sleep 1; done; test "$i" -lt 10'
     )
 }
-[void](Invoke-BoardCommand -Command ($serviceCommands -join '; ') -TimeoutSeconds 45)
+[void](Invoke-BoardCommandBatches -Commands $serviceCommands -TimeoutSeconds 45)
 
-$remotePaths = ($localFiles | ForEach-Object { $_.Remote }) -join ' '
-$hashResult = Invoke-BoardCommand -Command "sha256sum $remotePaths" -TimeoutSeconds 20
+$hashCommands = $localFiles | ForEach-Object { "sha256sum $($_.Remote)" }
+$hashResults = @(Invoke-BoardCommandBatches -Commands $hashCommands -TimeoutSeconds 20)
 $remoteHashes = @{}
-foreach ($line in ($hashResult.Output -split "`r?`n")) {
-    if ($line -match '^([0-9a-f]{64})\s+(/\S+)$') {
-        $remoteHashes[$Matches[2]] = $Matches[1]
+foreach ($hashResult in $hashResults) {
+    foreach ($line in ($hashResult.Output -split "`r?`n")) {
+        if ($line -match '^([0-9a-f]{64})\s+(/\S+)$') {
+            $remoteHashes[$Matches[2]] = $Matches[1]
+        }
     }
 }
 
 foreach ($entry in $localFiles) {
     if (-not $remoteHashes.ContainsKey($entry.Remote)) {
-        throw "Board SHA256 output did not contain $($entry.Remote).`n$($hashResult.Output)"
+        throw "Board SHA256 output did not contain $($entry.Remote)."
     }
     if ($remoteHashes[$entry.Remote] -ne $entry.Hash) {
         throw "SHA256 mismatch for $($entry.Remote): local=$($entry.Hash), remote=$($remoteHashes[$entry.Remote])"
@@ -233,6 +255,6 @@ if ($StartRuntimeService) {
         '/opt/outdoor-agent/bin/outdoor_status_query /run/outdoor-agent/outdoor_core.sock >/dev/null'
     )
 }
-[void](Invoke-BoardCommand -Command ($syntaxCommands -join '; ') -TimeoutSeconds 30)
+[void](Invoke-BoardCommandBatches -Commands $syntaxCommands -TimeoutSeconds 30)
 
 Write-Host "deployment=PASSED root=$InstallRoot port=$PortName runtime_enabled=$([bool]$EnableRuntimeService) runtime_started=$([bool]$StartRuntimeService)"
