@@ -87,6 +87,8 @@ bool McuFrameParser::applyFrame(const McuFrame& frame, McuStatus& status, std::s
     switch (frame.type) {
     case McuFrameType::Heartbeat:
         return applyHeartbeat(frame, status, error);
+    case McuFrameType::SensorHubDiagnostics:
+        return applySensorHubDiagnostics(frame, status, error);
     case McuFrameType::MockSensor:
         return applyMockSensor(frame, status, error);
     case McuFrameType::SensorImu:
@@ -104,6 +106,48 @@ bool McuFrameParser::applyFrame(const McuFrame& frame, McuStatus& status, std::s
 
     error = "unsupported MCU frame type";
     return false;
+}
+
+bool McuFrameParser::applySensorHubDiagnostics(const McuFrame& frame,
+                                                McuStatus& status,
+                                                std::string& error) const
+{
+    if (frame.payload.size() != kSensorHubDiagnosticsLegacyPayloadSize &&
+        frame.payload.size() != kSensorHubDiagnosticsPayloadSize) {
+        error = "sensor hub diagnostics payload size is invalid";
+        return false;
+    }
+
+    const bool hasExtension = frame.payload.size() == kSensorHubDiagnosticsPayloadSize;
+    if (hasExtension && frame.payload[43] != kSensorHubDiagnosticsExtensionVersion) {
+        error = "sensor hub diagnostics extension version is unsupported";
+        return false;
+    }
+
+    auto& diagnostics = status.diagnostics;
+    diagnostics.seen = true;
+    diagnostics.schemaVersion = hasExtension ? frame.payload[43] : 0U;
+    diagnostics.uptimeMs = readU32Le(frame.payload, 0);
+    diagnostics.i2cRecoveryCount = readU32Le(frame.payload, 4);
+    diagnostics.i2cTransactionFailureCount = readU32Le(frame.payload, 8);
+    diagnostics.i2cLastHalError = readU32Le(frame.payload, 12);
+    diagnostics.fifoOverflowCount = readU32Le(frame.payload, 16);
+    diagnostics.fifoMalformedPacketCount = readU32Le(frame.payload, 20);
+    diagnostics.fifoEmptyEventCount = readU32Le(frame.payload, 24);
+    diagnostics.fifoDrainStallCount = readU32Le(frame.payload, 28);
+    diagnostics.fifoSkippedPacketCount = readU32Le(frame.payload, 32);
+    diagnostics.i2cLastLength = readU16Le(frame.payload, 36);
+    diagnostics.i2cLastDeviceAddress = frame.payload[38];
+    diagnostics.i2cLastRegisterAddress = frame.payload[39];
+    diagnostics.i2cLastOperation = frame.payload[40];
+    diagnostics.i2cLastHalStatus = frame.payload[41];
+    diagnostics.icm42688InitErrorStep = frame.payload[42];
+    diagnostics.uart4RxDropCount = hasExtension ? readU32Le(frame.payload, 44) : 0U;
+    status.lastSequence = frame.sequence;
+    status.lastFrameType = mcuFrameTypeToString(frame.type);
+    status.lastError.clear();
+    error.clear();
+    return true;
 }
 
 bool McuFrameParser::applyHeartbeat(const McuFrame& frame, McuStatus& status, std::string& error) const

@@ -7,21 +7,25 @@
 ## 当前能力
 
 - C++17 / CMake Linux Runtime 工程
-- 日志、配置和 Runtime Service 生命周期
+- 日志、配置和 Runtime Service 生命周期；服务通过单线程协作式 `poll()` 调度并行推进，避免共享状态的数据竞争
+- 常驻运行期间每秒更新 `runtime_status.json`，支持 SIGINT/SIGTERM 和 `--runtime-run-seconds` 受控停止
+- MP157 SD 卡持久化存储适配：启用后保存状态 JSON、文本仪表盘、有限容量轮转日志和可选传感器 CSV 历史
 - NMEA 文件回放与 RMC/GGA/VTG/GSA/GSV Parser
 - MP157 UART5 GNSS/NMEA serial 输入路径，已验证 `/dev/ttySTM2`、38400 8N1
 - GNSS 基础定位状态输出
 - 文件型 Runtime 状态输出：`runtime/runtime_status.json`
-- `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出，以及可选 `/dev/fb0` framebuffer 输出
+- `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出、可选 `/dev/fb0` framebuffer 输出、主界面程序图标、轻量 fbdev/evdev APP launcher，以及板端 APP 配置/启动脚本
 - MCU mock frame 解析
 - `McuFrame` / `McuFrameParser` / `McuStatus`
 - CRC16/MODBUS 校验
 - Heartbeat、mock sensor 和 Mock IMU 帧解析
+- Sensor Hub diagnostics 解析与独立状态节点，兼容 legacy 44 字节 schema 0，并解析当前 48 字节 schema 1 的 I2C/FIFO 累计计数、最近失败上下文和 UART4 RX 累计丢弃字节数
 - `runtime_status.json` 输出独立 `imu` 字段
 - `runtime_status.json` 输出独立 `magnetometer` 字段，解析 F407 MMC5603 三轴磁场帧
+- `runtime_status.json` 输出独立 `compass` 字段，支持硬铁偏置、3×3 软铁/安装矩阵、倾斜补偿、磁偏角和质量门槛
 - `runtime_status.json` 输出独立 `barometer` 字段，解析 F407 BMP390 气压和温度帧
-- F407 live serial 输入路径，默认按 MP157 USART3 `/dev/ttySTM1` 读取 115200 8N1 二进制 MCU 帧，已通过 F407 UART4 上板验证
-- 最小 MP157 -> F407 `command_ping -> command_ack` 软件路径，serial 模式可通过 `--mcu-command ping` 发送命令
+- F407 live serial 输入路径，默认按 MP157 USART3 `/dev/ttySTM1` 读取 115200 8N1 二进制 MCU 帧；2026-07-18 已验证 heartbeat、IMU、磁力计和气压计真实帧
+- 最小 MP157 -> F407 `command_ping -> command_ack` 软件路径，serial 模式可通过 `--mcu-command ping` 发送命令；当前 ARM Runtime 已完成真实双向验收
 - MP157 板载 ICM20608 字符设备读取服务，输出独立 `board_imu` 字段
 - ICM20608 IIO sysfs reader 保留为后续可选来源
 
@@ -33,10 +37,46 @@ outdoor-core-service/
 ├── README.md
 ├── config/
 ├── data/
+├── deploy/
 ├── include/
 ├── scripts/
 ├── src/
 └── tests/
+```
+
+`deploy/systemd/outdoor-agent-icm20608.service` 用于在板厂 `link-modules.service` 完成内核模块目录链接后自动加载 `icm20608`，真实软重启已验证 `/dev/icm20608` 自动出现。`scripts/run_board_health_preflight.sh` 默认使用 `full` profile，强制要求 F407 `status_flags=425 (0x01A9)`、diagnostics schema 1、UART4 RX 丢弃计数为零、四类 MCU 数据、ping ACK、GNSS NMEA、板载 IMU、日志轮转/写入失败计数为零和核心错误字段全部通过。第五个参数可显式设为 `icm42688_only`，仅供带 heartbeat `0x8000` 标识的非生产隔离镜像使用：要求磁力计/气压计 absent、状态 `0x8181`，并要求 I2C/FIFO/init/drop 累计值全为零。`run_board_long_validation.sh` 仍只调用默认 `full`，不会被隔离 profile 放宽。通过后还会启动 `monitor_board_runtime_health.sh`，逐秒保存状态位、核心错误、诊断版本和 UART4 RX 累计丢弃计数。执行前应校验脚本和 Runtime 二进制的 SHA256，且不得并发运行多个 Runtime。
+
+当前真实板验证使用持久化目录 `/opt/outdoor-agent`：
+
+```text
+/opt/outdoor-agent/
+├── bin/outdoor_core_runtime
+├── config/runtime.conf
+└── scripts/
+    ├── run_board_long_validation.sh
+    ├── run_board_health_preflight.sh
+    ├── monitor_board_runtime_health.sh
+    ├── audit_board_long_validation.sh
+    ├── run_board_crash_recovery_validation.sh
+    └── run_board_gnss_fix_validation.sh
+```
+
+六个验证脚本默认使用上述 Runtime 与配置路径，采集结果写到 `/run/media/mmcblk1p1` 下的唯一目录。健康预检、逐秒时间线和正式验收相互关联但保留独立产物；`/tmp` 仅保存当前测试 PID/root/monitor 指针，不再保存可执行文件和配置。
+
+室外 GNSS fix 验收可执行：
+
+```bash
+/opt/outdoor-agent/scripts/run_board_gnss_fix_validation.sh 600
+```
+
+脚本限时等待 `fix_valid=true`，并要求 GNSS CSV 同时出现有效 RMC 非零坐标和有效 GGA 卫星数/质量；室内零卫星环境会明确返回 1，不把“收到 NMEA”误判为“定位成功”。
+
+在仓库根目录可通过 COM9 一次完成目录创建、XMODEM 上传、权限、systemd 安装和哈希/语法验证：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts/deploy_mp157_runtime.ps1 `
+  -PortName COM9
 ```
 
 ## 编译
@@ -77,13 +117,79 @@ runtime/runtime_status.json
 runtime/dashboard.txt
 ```
 
+协作式调度支持持续采集和常驻 dashboard 同时运行：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf \
+  --gnss-input-mode serial --gnss-serial-capture-seconds 0 \
+  --mcu-input-mode serial --mcu-serial-capture-seconds 0 \
+  --dashboard-refresh-count 0 --runtime-run-seconds 3600
+```
+
+其中 `gnss_serial_capture_seconds = 0`、`mcu_serial_capture_seconds = 0`、`board_imu_sample_count = 0` 和 `dashboard_refresh_count = 0` 分别表示对应服务持续运行；`runtime_run_seconds = 0` 表示不设置 Runtime 总时长上限。运行中的状态文件增加 `active_service_count` 和 `completed_service_count`，可区分仍在调度的服务与已经完成的一次性服务。
+
+罗盘解算由 `navigation/compass_estimator` 完成，机身坐标约定为 `+X` 向前、`+Y` 向右、`+Z` 向上。默认配置只输出标记为 `quality=uncalibrated` 的估计：
+
+```text
+compass_enabled = true
+compass_calibration_valid = false
+compass_declination_degrees = 0.0
+compass_hard_iron_x_ut = 0.0
+compass_hard_iron_y_ut = 0.0
+compass_hard_iron_z_ut = 0.0
+compass_soft_iron_00 = 1.0
+compass_soft_iron_11 = 1.0
+compass_soft_iron_22 = 1.0
+```
+
+完整配置还包含其余矩阵项、磁场/加速度范围和最大样本时差。只有真实整机完成多姿态采集、拟合并验证后，才应设置 `compass_calibration_valid=true`。仓库级 `tools/compass_calibrator` 可直接读取 History Recorder 的 `magnetometer.csv`，输出硬铁偏置、完整 3×3 软铁矩阵、覆盖度和残差报告；可选安装旋转必须来自独立测量，候选文件强制保持 calibration false。`data/mcu_mock_frames_compass.txt` 仅用于确定性软件集成验证，不是现场标定数据。罗盘 fixture 当时使用的 254152 B ARM Runtime SHA256 为 `8f4c1423...10d5`；板端 JSON/dashboard 均得到 heading `30.303°`、field `57.711 uT` 和 `quality=uncalibrated`。当前部署版本已继续包含 Logger 健康和 diagnostics schema 1 扩展，不能用 fixture 结果替代真实整机标定。
+
+MP157 插入并挂载 SD 卡后，可以把 Runtime 输出切换到 SD 卡目录。默认配置不强制启用 SD 卡，避免 PC 开发和自动化测试依赖板端挂载状态：
+
+```bash
+./outdoor_core_runtime --config config/runtime.conf \
+  --storage-root /run/media/mmcblk1p1/outdoor-agent --history
+```
+
+启用后会自动创建：
+
+```text
+/run/media/mmcblk1p1/outdoor-agent/status/runtime_status.json
+/run/media/mmcblk1p1/outdoor-agent/dashboard/dashboard.txt
+/run/media/mmcblk1p1/outdoor-agent/logs/outdoor_core_runtime.log
+/run/media/mmcblk1p1/outdoor-agent/data/history/gnss.csv
+/run/media/mmcblk1p1/outdoor-agent/data/history/mcu_imu.csv
+/run/media/mmcblk1p1/outdoor-agent/data/history/magnetometer.csv
+/run/media/mmcblk1p1/outdoor-agent/data/history/barometer.csv
+/run/media/mmcblk1p1/outdoor-agent/data/history/board_imu.csv
+/run/media/mmcblk1p1/outdoor-agent/captures/
+```
+
+本项目当前 MP157 实测 SD 卡自动挂载为 `/run/media/mmcblk1p1`；`/mnt/sdcard` 当前不存在。若后续系统镜像改为固定挂载 `/mnt/sdcard`，只需要替换 `--storage-root` 或配置中的 `storage_root_path`。`runtime_status.json` 的 `storage` 节点会记录 history 路径、日志轮转配置、`log_rotation_failure_count`、`log_write_failure_count`、`log_last_error` 和聚合初始化/运行错误。
+
+默认 `storage_log_max_bytes = 1048576`、`storage_log_backup_count = 3`，轮转文件后缀为 `.1` 到 `.3`；max bytes 为 0 时关闭轮转。Logger 在一个文件输出会话内累计轮转失败和写/flush 失败；轮转失败时尝试重新打开活动文件并继续追加，但失败事实保持到最终状态，不会因后续成功写入被清除。History Recorder 按 GNSS 句子计数、各 MCU 传感器 uptime 和 Board IMU sample count 去重，每秒 flush。GNSS/MCU serial service 会在每个合法句子/帧应用后触发记录，避免一次 read 内多帧覆盖；CSV 仍不是包含噪声、CRC 错误和解析失败载荷的 raw capture。
+
+2026-07-19 真实 MP157 短时验证：60 秒双串口/Board IMU/framebuffer/SD history 联合运行成功受控退出；发现旧快照观察方式只记录约 57 Hz MCU IMU 后，按 `TRB-20260719-011` 增加逐帧 callback，修复版 20 秒 framebuffer 复验为 MCU IMU 约 98.1 Hz、磁力计约 20.1 Hz、气压计 10.0 Hz，四类 MCU 状态和 ping ACK 正常。另一次 30 秒 info 日志测试在 VFAT SD 卡生成 718 KiB 活动日志和 1.0 MiB `.1` 备份，验证按大小轮转生效。
+
+当前部署的 ARM Runtime 为 258560 B，SHA256 `47c4bcc9f34f1d45add17e27734f2e8acda7b2e77364ba87e7d151b7092bb739`。短时 monitor 探针取得 4 行、每行 23 列、schema 1/drop 0 的时间线；随后 40960 字节受控下行压力使预检 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-jYMnDJ` 解码到 `uart4_rx_drop_count=2231` 并按设计拒绝，F407 应用复位后的 `/run/media/mmcblk1p1/outdoor-agent-health-preflight-XOXgzn` 恢复 schema 1/drop 0。复位后预检仍只因 F407 `status_flags=0x102E` 失败，因此不能宣称真实 ICM42688 或 FIFO/I2C 修复已通过板端验收。
+
 7 英寸 RGB 屏 framebuffer 仪表盘运行方式：
 
 ```bash
 ./outdoor_core_runtime --config config/runtime.conf --board-imu --dashboard-output-mode both --dashboard-framebuffer-device /dev/fb0 --dashboard-refresh-count 3 --dashboard-refresh-interval-ms 500
 ```
 
-当前屏幕 APP 名称为 `outdoor-agent`，framebuffer 版本按深色科技风参考图组织为左侧导航、顶部状态栏、方向罗盘、大速度表、位置地图、温度/光照展示区和底部状态栏。真实数据来源仍以 GNSS、F407 Sensor Hub 和 MP157 Board IMU 为主；光照、空气质量、电池、信号等是 UI 占位/演示指标，真实 AI Agent 本地部署和交互后续实现。
+当前屏幕 APP 名称为 `outdoor-agent`，framebuffer 版本按深色科技风参考图组织为左侧导航、左上角程序图标、顶部状态栏、方向罗盘、大速度表、位置地图、温度/光照展示区和底部状态栏。真实数据来源仍以 GNSS、F407 Sensor Hub 和 MP157 Board IMU 为主；光照、空气质量、电池、信号等是 UI 占位/演示指标，真实 AI Agent 本地部署和交互后续实现。
+
+板端真正作为 APP 进程启动时，使用独立配置和脚本：
+
+```bash
+./scripts/run_outdoor_agent_app.sh
+```
+
+该脚本默认执行 `./outdoor_core_runtime --config config/outdoor_agent_app.conf`。APP 配置将 `dashboard_output_mode` 设为 `both`，`dashboard_framebuffer_device` 设为 `/dev/fb0`，并使用 `dashboard_refresh_count = 0` 表示常驻刷新；同时默认开启 `launcher_enabled = true`，先显示中央 `OUTDOOR AGENT` 图标/磁贴，点击后进入 dashboard。普通 PC 开发和自动化验证仍默认使用 `config/runtime.conf` 的文本/单次刷新路径。
+
+2026-07-05 已通过 COM3 完成 MP157 UI 上板验证：`/dev/fb0` 报告 1024x600、16 bpp；Goodix 触摸设备为 `/dev/input/touchscreen0 -> event0`；当前 ARM Runtime SHA256 为 `0fa01c5199a903b43bf60c09c4cefb11c122015233f4c72a059d3b2cd5b600c5`；`outdoor-agent` APP launcher 可显示到 `/dev/fb0`，并已验证 `--launcher-auto-start-seconds 2` 自动进入 dashboard 和真实手指点击图标启动。真实点击日志为 `Launcher icon tapped at x=530, y=292`，随后成功输出 `Dashboard rendered to framebuffer: /dev/fb0`。
 
 UBLOX-M10 UART5 软件路径运行方式：
 
@@ -116,9 +222,9 @@ F407 GND              - MP157 GND
 ./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5
 ```
 
-2026-06-25 MMC5603 验证结果：F407 以约 20 Hz 输出 `sensor_magnetometer`，平均磁场强度约 `47.24 μT`。MP157 parser 会输出 `mcu.magnetometer_seen` 和独立 `magnetometer` 节点。当前 ICM42688 仍为 Mock fallback。
+2026-06-25 MMC5603 验证结果：F407 以约 20 Hz 输出 `sensor_magnetometer`，平均磁场强度约 `47.24 μT`。MP157 parser 会输出 `mcu.magnetometer_seen` 和独立 `magnetometer` 节点。该次验证中 ICM42688 仍为 Mock fallback；2026-07-18 当前接线已确认 ICM42688 和 MMC5603 同时 ready。
 
-BMP390 软件路径会解析 `sensor_barometer`，并输出 `mcu.barometer_seen` 以及独立 `barometer.pressure_pa`、`barometer.temperature_celsius`。该路径已通过本机构建和单元测试，真实 F407/BMP390 上板验证待完成。
+BMP390 软件路径会解析 `sensor_barometer`，并输出 `mcu.barometer_seen` 以及独立 `barometer.pressure_pa`、`barometer.temperature_celsius`。2026-07-18 真实 F407/BMP390 上板验证已确认 `barometer_seen=true`。
 
 MP157 -> F407 最小下行 ping 命令：
 
@@ -126,7 +232,7 @@ MP157 -> F407 最小下行 ping 命令：
 ./outdoor_core_runtime --config config/runtime.conf --mcu-input-mode serial --mcu-serial-device /dev/ttySTM1 --mcu-serial-baud 115200 --mcu-serial-capture-seconds 5 --mcu-command ping
 ```
 
-预期 F407 通过 UART4 RX 解析 `command_ping`，再通过 UART4 TX 返回 `command_ack`；MP157 侧 `runtime/runtime_status.json` 中应出现 `mcu.command_ack_seen=true`、`mcu.command_ack_status=0` 和默认 nonce。当前已通过 MP157 shell raw 写帧方式确认 F407 返回 `command_ack`，新版 ARM Runtime `--mcu-command ping` 板端复测后续补充。
+F407 通过 UART4 RX 中断缓冲解析 `command_ping`，再通过 UART4 TX 返回 `command_ack`。2026-07-18 已在 MP157 COM9 上运行当前 ARM Runtime 完成验证：`mcu.command_ack_seen=true`、`mcu.command_ack_request_type=128`、`mcu.command_ack_status=0`、nonce `0x50494E47`；同次状态文件还确认 heartbeat、IMU、磁力计和气压计均已收到。
 
 ## 验证
 
@@ -140,6 +246,11 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - RMC/GGA/VTG/GSA/GSV 解析
 - `runtime_status.json` 中的 `gnss` 字段
 - `outdoor-agent` 文本仪表盘 `runtime/dashboard.txt`
+- 文本 dashboard 输出 `app_icon_visible: true`，用于覆盖主界面程序图标显示检查
+- `config/outdoor_agent_app.conf` APP 配置可在覆盖为文本/单次刷新后正常运行
+- APP launcher 配置项可加载，PC 文本验证路径不会访问 `/dev/fb0` 或 evdev
+- Runtime Manager 协作式交错调度、服务完成/失败、停止条件和循环回调
+- 无限 dashboard 在 `--runtime-run-seconds 1` 下与有限输入服务共同运行并正常停止
 - NMEA checksum 错误拒绝
 - MCU heartbeat mock 帧
 - MCU mock sensor 帧
@@ -149,6 +260,10 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - fake character-device / fake-IIO 的 ICM20608 换算测试
 - MCU CRC16 错误拒绝
 - `runtime_status.json` 状态输出
+- storage 模式下的状态 JSON、文本 dashboard 和日志文件生成
+- history 模式下五类 CSV 的创建、数据追加和状态字段
+- History Recorder 去重、CSV 转义，以及日志轮转顺序和备份数量上限
+- 日志轮转失败故障注入、恢复后继续写入、累计健康状态，以及非零状态 JSON 转义
 
 ## 配置
 
@@ -172,7 +287,18 @@ mcu_serial_device = /dev/ttySTM1
 mcu_serial_baud = 115200
 mcu_serial_capture_seconds = 5
 mcu_command = none
+runtime_run_seconds = 0
 status_output_path = runtime/runtime_status.json
+storage_enabled = false
+storage_root_path = /run/media/mmcblk1p1/outdoor-agent
+storage_status_output_path = status/runtime_status.json
+storage_dashboard_output_path = dashboard/dashboard.txt
+storage_log_file_path = logs/outdoor_core_runtime.log
+storage_log_max_bytes = 1048576
+storage_log_backup_count = 3
+history_enabled = false
+history_output_path = data/history
+history_flush_interval_ms = 1000
 board_imu_enabled = false
 board_imu_source = char_device
 board_imu_device_path = /dev/icm20608
@@ -185,5 +311,15 @@ dashboard_output_mode = text
 dashboard_framebuffer_device = /dev/fb0
 dashboard_refresh_count = 1
 dashboard_refresh_interval_ms = 1000
+launcher_enabled = false
+launcher_input_device = /dev/input/touchscreen0
+launcher_auto_start_seconds = 0
 log_level = info
 ```
+
+板端 APP 配置文件：
+```text
+config/outdoor_agent_app.conf
+```
+
+其中 `dashboard_refresh_count = 0` 表示 dashboard 服务常驻刷新，适合屏幕 APP 进程；`launcher_enabled = true` 表示先进入 APP launcher，点击图标/磁贴后启动 dashboard；`launcher_auto_start_seconds` 只用于无人值守板端验证。自动化验证会通过命令行覆盖为 `--dashboard-output-mode text --dashboard-refresh-count 1` 或设置短自动启动超时。

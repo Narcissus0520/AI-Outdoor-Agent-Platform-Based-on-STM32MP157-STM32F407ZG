@@ -1,0 +1,11 @@
+# Focused valid MCU fixture for compass integration verification.
+# Coordinate convention: +X forward, +Y right, +Z up.
+
+# heartbeat: uptime_ms=1000, status_flags=0x0009 (real IMU + magnetometer ready)
+A5 5A 01 01 01 00 06 00 E8 03 00 00 09 00 19 AA
+
+# IMU: uptime_ms=4020, accel=(0.013, -0.007, 1.001)g
+A5 5A 01 11 04 00 18 00 B4 0F 00 00 0D 00 F9 FF E9 03 E6 05 00 00 6E F7 FF FF 44 01 00 00 E3 09 0B 3C
+
+# magnetometer: uptime_ms=4050, magnetic=(32.125, -18.750, 44.125)uT
+A5 5A 01 12 05 00 10 00 D2 0F 00 00 7D 7D 00 00 C2 B6 FF FF 5D AC 00 00 55 C8

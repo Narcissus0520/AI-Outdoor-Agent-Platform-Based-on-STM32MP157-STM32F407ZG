@@ -5,7 +5,6 @@
 #include <chrono>
 #include <filesystem>
 #include <sstream>
-#include <thread>
 #include <utility>
 
 namespace outdoor::services {
@@ -20,7 +19,7 @@ Icm20608Service::Icm20608Service(std::string source,
       charReader_(std::move(charReader)),
       reader_(std::move(reader)),
       status_(status),
-      sampleCount_(sampleCount == 0U ? 1U : sampleCount),
+      sampleCount_(sampleCount),
       sampleIntervalMs_(sampleIntervalMs) {}
 
 const char* Icm20608Service::name() const
@@ -40,44 +39,52 @@ bool Icm20608Service::start()
         return false;
     }
 
+    completedSampleCount_ = 0;
+    status_.sampleCount = 0;
+    nextSampleAt_ = std::chrono::steady_clock::now();
     outdoor::log::Logger::info("ICM20608 input selected: " + status_.source + " at " + status_.devicePath);
     return true;
 }
 
-bool Icm20608Service::run()
+outdoor::runtime::ServicePollResult Icm20608Service::poll()
 {
-    for (std::size_t index = 0; index < sampleCount_; ++index) {
-        outdoor::sensors::Icm20608Sample sample;
-        std::string error;
-        if (!readSample(sample, error)) {
-            status_.lastError = error;
-            outdoor::log::Logger::error(error);
-            return false;
-        }
-
-        status_.seen = true;
-        status_.sampleCount = index + 1U;
-        status_.accelXG = sample.accelXG;
-        status_.accelYG = sample.accelYG;
-        status_.accelZG = sample.accelZG;
-        status_.gyroXDps = sample.gyroXDps;
-        status_.gyroYDps = sample.gyroYDps;
-        status_.gyroZDps = sample.gyroZDps;
-        status_.temperatureCelsius = sample.temperatureCelsius;
-        status_.lastError.clear();
-
-        std::ostringstream message;
-        message << "ICM20608 sample: accel_g=(" << sample.accelXG << ", " << sample.accelYG << ", "
-                << sample.accelZG << "), gyro_dps=(" << sample.gyroXDps << ", " << sample.gyroYDps << ", "
-                << sample.gyroZDps << "), temp_c=" << sample.temperatureCelsius;
-        outdoor::log::Logger::info(message.str());
-
-        if (sampleIntervalMs_ > 0U && index + 1U < sampleCount_) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(sampleIntervalMs_));
-        }
+    const auto now = std::chrono::steady_clock::now();
+    if (now < nextSampleAt_) {
+        return outdoor::runtime::ServicePollResult::Running;
     }
 
-    return true;
+    outdoor::sensors::Icm20608Sample sample;
+    std::string error;
+    if (!readSample(sample, error)) {
+        status_.lastError = error;
+        outdoor::log::Logger::error(error);
+        return outdoor::runtime::ServicePollResult::Failed;
+    }
+
+    ++completedSampleCount_;
+    status_.seen = true;
+    status_.sampleCount = completedSampleCount_;
+    status_.accelXG = sample.accelXG;
+    status_.accelYG = sample.accelYG;
+    status_.accelZG = sample.accelZG;
+    status_.gyroXDps = sample.gyroXDps;
+    status_.gyroYDps = sample.gyroYDps;
+    status_.gyroZDps = sample.gyroZDps;
+    status_.temperatureCelsius = sample.temperatureCelsius;
+    status_.lastError.clear();
+
+    std::ostringstream message;
+    message << "ICM20608 sample: accel_g=(" << sample.accelXG << ", " << sample.accelYG << ", "
+            << sample.accelZG << "), gyro_dps=(" << sample.gyroXDps << ", " << sample.gyroYDps << ", "
+            << sample.gyroZDps << "), temp_c=" << sample.temperatureCelsius;
+    outdoor::log::Logger::info(message.str());
+
+    if (sampleCount_ > 0U && completedSampleCount_ >= sampleCount_) {
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
+
+    nextSampleAt_ = now + std::chrono::milliseconds(sampleIntervalMs_);
+    return outdoor::runtime::ServicePollResult::Running;
 }
 
 void Icm20608Service::stop()

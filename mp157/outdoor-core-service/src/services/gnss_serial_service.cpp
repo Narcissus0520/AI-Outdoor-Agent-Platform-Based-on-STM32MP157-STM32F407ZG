@@ -6,7 +6,6 @@
 #include <array>
 #include <chrono>
 #include <string>
-#include <thread>
 #include <utility>
 
 #ifndef _WIN32
@@ -64,11 +63,13 @@ std::string sentenceType(const std::string& line)
 GnssSerialService::GnssSerialService(std::string devicePath,
                                      std::uint32_t baudRate,
                                      std::uint32_t captureSeconds,
-                                     outdoor::gnss::GnssStatus& status)
+                                     outdoor::gnss::GnssStatus& status,
+                                     std::function<bool(std::string&)> statusUpdatedCallback)
     : devicePath_(std::move(devicePath)),
       baudRate_(baudRate),
       captureSeconds_(captureSeconds),
-      status_(status)
+      status_(status),
+      statusUpdatedCallback_(std::move(statusUpdatedCallback))
 {
     status_.enabled = true;
     status_.source = "uart5";
@@ -106,69 +107,75 @@ bool GnssSerialService::start()
         return false;
     }
 
+    deadlineEnabled_ = captureSeconds_ > 0U;
+    if (deadlineEnabled_) {
+        deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(captureSeconds_);
+    }
+    lineBuffer_.clear();
     outdoor::log::Logger::info("GNSS serial input opened: " + devicePath_);
     return true;
 #endif
 }
 
-bool GnssSerialService::run()
+outdoor::runtime::ServicePollResult GnssSerialService::poll()
 {
 #ifdef _WIN32
-    return false;
+    return outdoor::runtime::ServicePollResult::Failed;
 #else
     if (fd_ < 0) {
         status_.lastError = "GNSS serial device is not open";
         outdoor::log::Logger::error(status_.lastError);
-        return false;
+        return outdoor::runtime::ServicePollResult::Failed;
     }
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(captureSeconds_);
+    if (deadlineEnabled_ && std::chrono::steady_clock::now() >= deadline_) {
+        if (!lineBuffer_.empty()) {
+            if (!consumeLine(lineBuffer_)) {
+                return outdoor::runtime::ServicePollResult::Failed;
+            }
+            lineBuffer_.clear();
+        }
+        if (!status_.seen) {
+            status_.lastError = "GNSS serial capture completed without valid NMEA sentences";
+            outdoor::log::Logger::warn(status_.lastError);
+            return outdoor::runtime::ServicePollResult::Failed;
+        }
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
+
     std::array<char, 256U> buffer {};
-    std::string lineBuffer;
-    while (std::chrono::steady_clock::now() < deadline) {
-        const ssize_t readSize = ::read(fd_, buffer.data(), buffer.size());
-        if (readSize < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
+    const ssize_t readSize = ::read(fd_, buffer.data(), buffer.size());
+    if (readSize < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return outdoor::runtime::ServicePollResult::Running;
+        }
+        status_.lastError = errnoMessage("failed to read GNSS serial device " + devicePath_);
+        outdoor::log::Logger::error(status_.lastError);
+        return outdoor::runtime::ServicePollResult::Failed;
+    }
+
+    if (readSize == 0) {
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+
+    for (ssize_t index = 0; index < readSize; ++index) {
+        const char ch = buffer[static_cast<std::size_t>(index)];
+        if (ch == '\n') {
+            if (!consumeLine(lineBuffer_)) {
+                return outdoor::runtime::ServicePollResult::Failed;
             }
-            status_.lastError = errnoMessage("failed to read GNSS serial device " + devicePath_);
-            outdoor::log::Logger::error(status_.lastError);
-            return false;
-        }
-
-        if (readSize == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
-
-        for (ssize_t index = 0; index < readSize; ++index) {
-            const char ch = buffer[static_cast<std::size_t>(index)];
-            if (ch == '\n') {
-                consumeLine(lineBuffer);
-                lineBuffer.clear();
-            } else if (ch != '\r') {
-                lineBuffer.push_back(ch);
-                if (lineBuffer.size() > 160U) {
-                    status_.lastError = "GNSS NMEA line exceeded maximum length";
-                    ++status_.skippedSentenceCount;
-                    lineBuffer.clear();
-                }
+            lineBuffer_.clear();
+        } else if (ch != '\r') {
+            lineBuffer_.push_back(ch);
+            if (lineBuffer_.size() > 160U) {
+                status_.lastError = "GNSS NMEA line exceeded maximum length";
+                ++status_.skippedSentenceCount;
+                lineBuffer_.clear();
             }
         }
     }
 
-    if (!lineBuffer.empty()) {
-        consumeLine(lineBuffer);
-    }
-
-    if (!status_.seen) {
-        status_.lastError = "GNSS serial capture completed without valid NMEA sentences";
-        outdoor::log::Logger::warn(status_.lastError);
-        return false;
-    }
-
-    return true;
+    return outdoor::runtime::ServicePollResult::Running;
 #endif
 }
 
@@ -233,10 +240,10 @@ void GnssSerialService::closePort()
 #endif
 }
 
-void GnssSerialService::consumeLine(const std::string& line)
+bool GnssSerialService::consumeLine(const std::string& line)
 {
     if (line.empty()) {
-        return;
+        return true;
     }
 
     status_.lastSentenceType = sentenceType(line);
@@ -248,7 +255,15 @@ void GnssSerialService::consumeLine(const std::string& line)
         ++status_.validSentenceCount;
         status_.lastError.clear();
         outdoor::log::Logger::info(outdoor::gnss::formatGnssFix(status_.fix));
-        return;
+        if (statusUpdatedCallback_) {
+            std::string callbackError;
+            if (!statusUpdatedCallback_(callbackError)) {
+                status_.lastError = "GNSS status update callback failed: " + callbackError;
+                outdoor::log::Logger::error(status_.lastError);
+                return false;
+            }
+        }
+        return true;
     }
 
     if (!parseError.empty()) {
@@ -256,6 +271,7 @@ void GnssSerialService::consumeLine(const std::string& line)
         status_.lastError = parseError;
         outdoor::log::Logger::debug("GNSS UART5 NMEA parse skipped: " + parseError);
     }
+    return true;
 }
 
 } // namespace outdoor::services

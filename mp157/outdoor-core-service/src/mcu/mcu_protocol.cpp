@@ -12,6 +12,8 @@ const char* mcuFrameTypeToString(McuFrameType type)
     switch (type) {
     case McuFrameType::Heartbeat:
         return "heartbeat";
+    case McuFrameType::SensorHubDiagnostics:
+        return "sensor_hub_diagnostics";
     case McuFrameType::MockSensor:
         return "mock_sensor";
     case McuFrameType::SensorImu:

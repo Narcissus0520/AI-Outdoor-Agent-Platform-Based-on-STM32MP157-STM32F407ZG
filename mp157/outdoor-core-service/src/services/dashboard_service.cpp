@@ -15,13 +15,13 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
 #ifndef _WIN32
 #include <fcntl.h>
 #include <linux/fb.h>
+#include <linux/input.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -42,6 +42,19 @@ struct Rgb {
     std::uint8_t r {};
     std::uint8_t g {};
     std::uint8_t b {};
+};
+
+struct Rect {
+    int x {};
+    int y {};
+    int width {};
+    int height {};
+};
+
+struct AxisRange {
+    int minimum {};
+    int maximum {};
+    bool valid {};
 };
 
 std::string toUpperAscii(std::string_view value)
@@ -114,9 +127,41 @@ std::string fixedValue(double value, int precision)
     return stream.str();
 }
 
+std::string compassDirectionShort(double headingDegrees)
+{
+    static constexpr std::array<const char*, 8> directions {
+        "N", "NE", "E", "SE", "S", "SW", "W", "NW"
+    };
+    const int index = static_cast<int>(std::floor((headingDegrees + 22.5) / 45.0)) % 8;
+    return directions[static_cast<std::size_t>(index)];
+}
+
+std::string compassDirectionLong(double headingDegrees)
+{
+    static constexpr std::array<const char*, 8> directions {
+        "NORTH", "NORTH EAST", "EAST", "SOUTH EAST",
+        "SOUTH", "SOUTH WEST", "WEST", "NORTH WEST"
+    };
+    const int index = static_cast<int>(std::floor((headingDegrees + 22.5) / 45.0)) % 8;
+    return directions[static_cast<std::size_t>(index)];
+}
+
+std::string formattedHeading(double headingDegrees)
+{
+    std::ostringstream stream;
+    stream << std::setw(3) << std::setfill('0')
+           << static_cast<int>(std::lround(headingDegrees)) % 360;
+    return stream.str();
+}
+
 double clampToRange(double value, double minValue, double maxValue)
 {
     return std::max(minValue, std::min(value, maxValue));
+}
+
+bool contains(Rect rect, int x, int y)
+{
+    return x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height;
 }
 
 Rgb mixColor(Rgb a, Rgb b, double t)
@@ -379,15 +424,153 @@ private:
     std::size_t bufferLength_ {};
     std::string lastError_;
 };
+
+void drawAppIcon(FramebufferCanvas& canvas,
+                 int x,
+                 int y,
+                 int size,
+                 Rgb background,
+                 Rgb border,
+                 Rgb cyan,
+                 Rgb cyanSoft,
+                 Rgb blue,
+                 Rgb white)
+{
+    const int centerX = x + size / 2;
+    const int centerY = y + size / 2;
+
+    canvas.fillRect(x, y, size, size, background);
+    canvas.drawRect(x, y, size, size, border);
+    canvas.fillRect(x + 2, y + 2, size - 4, 2, cyan);
+    canvas.drawCircle(centerX, centerY, size / 2 - 8, border);
+    canvas.drawCircle(centerX, centerY, size / 2 - 14, blue);
+    canvas.drawThickLine(centerX, y + 8, x + size - 9, y + size - 13, cyan, 3);
+    canvas.drawThickLine(centerX, y + 8, x + 9, y + size - 13, cyanSoft, 3);
+    canvas.fillCircle(centerX, centerY, 4, white);
+    canvas.drawText(centerX - 6, y + size - 14, "OA", white, 1);
+}
+
+std::string resolveLauncherInputDevice(std::string configuredDevice)
+{
+    if (configuredDevice.empty() || configuredDevice == "auto") {
+        if (std::filesystem::exists("/dev/input/touchscreen0")) {
+            return "/dev/input/touchscreen0";
+        }
+        if (std::filesystem::exists("/dev/input/event0")) {
+            return "/dev/input/event0";
+        }
+    }
+    return configuredDevice;
+}
+
+AxisRange queryAxisRange(int fd, unsigned int code)
+{
+    input_absinfo info {};
+    if (ioctl(fd, EVIOCGABS(code), &info) == 0 && info.maximum > info.minimum) {
+        return {info.minimum, info.maximum, true};
+    }
+    return {};
+}
+
+int mapAxisToScreen(int value, AxisRange range, int screenLength)
+{
+    if (!range.valid || screenLength <= 1) {
+        return value;
+    }
+    const double ratio = static_cast<double>(value - range.minimum) /
+                         static_cast<double>(range.maximum - range.minimum);
+    return static_cast<int>(clampToRange(ratio, 0.0, 1.0) * static_cast<double>(screenLength - 1));
+}
+
+void drawLauncherScreen(FramebufferCanvas& canvas, Rect iconBounds)
+{
+    const Rgb bg {3, 8, 19};
+    const Rgb grid {9, 34, 62};
+    const Rgb panel {8, 25, 49};
+    const Rgb border {30, 91, 145};
+    const Rgb borderDim {15, 54, 93};
+    const Rgb cyan {20, 206, 255};
+    const Rgb cyanSoft {68, 178, 255};
+    const Rgb blue {22, 96, 226};
+    const Rgb green {45, 226, 157};
+    const Rgb white {232, 240, 252};
+    const Rgb muted {134, 160, 191};
+
+    const int screenWidth = canvas.width();
+    const int screenHeight = canvas.height();
+    canvas.fill(bg);
+    for (int y = 0; y < screenHeight; y += 30) {
+        canvas.drawLine(0, y, screenWidth, y, grid);
+    }
+    for (int x = 0; x < screenWidth; x += 40) {
+        canvas.drawLine(x, 0, x, screenHeight, {5, 24, 45});
+    }
+
+    canvas.fillRect(0, 0, screenWidth, 64, {5, 16, 35});
+    canvas.drawLine(0, 64, screenWidth, 64, borderDim);
+    canvas.drawText(32, 22, "AI OUTDOOR AGENT PLATFORM", white, 2);
+    canvas.drawText(screenWidth - 210, 24, "MP157 APP LAUNCHER", muted, 1);
+
+    canvas.fillRect(iconBounds.x - 32, iconBounds.y - 32, iconBounds.width + 64, iconBounds.height + 96, panel);
+    canvas.drawRect(iconBounds.x - 32, iconBounds.y - 32, iconBounds.width + 64, iconBounds.height + 96, border);
+    drawAppIcon(canvas,
+                iconBounds.x,
+                iconBounds.y,
+                iconBounds.width,
+                {9, 31, 57},
+                border,
+                cyan,
+                cyanSoft,
+                blue,
+                white);
+    canvas.drawText(iconBounds.x - 28, iconBounds.y + iconBounds.height + 20, "OUTDOOR AGENT", white, 2);
+    canvas.drawText(iconBounds.x - 18, iconBounds.y + iconBounds.height + 50, "TAP ICON TO START", green, 1);
+    canvas.drawText(32, screenHeight - 36, "FBDEV + EVDEV LAUNCHER", muted, 1);
+    canvas.drawText(screenWidth - 260, screenHeight - 36, "TOUCH: /DEV/INPUT/TOUCHSCREEN0", muted, 1);
+}
+
 #endif
 
 } // namespace
+
+struct DashboardService::LauncherState {
+#ifndef _WIN32
+    ~LauncherState()
+    {
+        if (fd >= 0) {
+            (void)::close(fd);
+        }
+    }
+
+    int fd = -1;
+    Rect launchBounds {};
+    int screenWidth = 0;
+    int screenHeight = 0;
+    AxisRange absXRange {};
+    AxisRange absYRange {};
+    AxisRange mtXRange {};
+    AxisRange mtYRange {};
+    AxisRange currentXRange {};
+    AxisRange currentYRange {};
+    bool touching = false;
+    bool sawTouchSignal = false;
+    bool haveX = false;
+    bool haveY = false;
+    bool coordinateUpdated = false;
+    int rawX = 0;
+    int rawY = 0;
+    std::chrono::steady_clock::time_point startedAt {};
+#endif
+};
 
 DashboardService::DashboardService(std::string outputPath,
                                    std::string outputMode,
                                    std::string framebufferDevice,
                                    std::size_t refreshCount,
                                    std::uint32_t refreshIntervalMs,
+                                   bool launcherEnabled,
+                                   std::string launcherInputDevice,
+                                   std::uint32_t launcherAutoStartSeconds,
                                    const outdoor::gnss::GnssStatus& gnssStatus,
                                    const outdoor::mcu::McuStatus& mcuStatus,
                                    const outdoor::sensors::BoardImuStatus& boardImuStatus)
@@ -396,11 +579,16 @@ DashboardService::DashboardService(std::string outputPath,
       framebufferDevice_(std::move(framebufferDevice)),
       refreshCount_(refreshCount),
       refreshIntervalMs_(refreshIntervalMs),
+      launcherEnabled_(launcherEnabled),
+      launcherInputDevice_(std::move(launcherInputDevice)),
+      launcherAutoStartSeconds_(launcherAutoStartSeconds),
       gnssStatus_(gnssStatus),
       mcuStatus_(mcuStatus),
       boardImuStatus_(boardImuStatus)
 {
 }
+
+DashboardService::~DashboardService() = default;
 
 const char* DashboardService::name() const
 {
@@ -409,37 +597,194 @@ const char* DashboardService::name() const
 
 bool DashboardService::start()
 {
-    return true;
-}
-
-bool DashboardService::run()
-{
     if (outputMode_ != "text" && outputMode_ != "framebuffer" && outputMode_ != "both") {
         outdoor::log::Logger::error("Unsupported dashboard output mode: " + outputMode_);
         return false;
     }
 
-    const std::size_t iterations = refreshCount_ == 0 ? 1 : refreshCount_;
-    for (std::size_t index = 0; index < iterations; ++index) {
-        bool ok = true;
-        if (outputMode_ == "text" || outputMode_ == "both") {
-            ok = writeTextDashboard() && ok;
+    stop();
+    completedRefreshCount_ = 0;
+    nextRefreshAt_ = std::chrono::steady_clock::now();
+
+#ifndef _WIN32
+    if (launcherEnabled_ && (outputMode_ == "framebuffer" || outputMode_ == "both")) {
+        FramebufferCanvas launcherCanvas(framebufferDevice_);
+        if (!launcherCanvas.open()) {
+            outdoor::log::Logger::error("Failed to open launcher framebuffer " + framebufferDevice_ + ": " +
+                                        launcherCanvas.lastError());
+            return false;
         }
-        if (outputMode_ == "framebuffer" || outputMode_ == "both") {
-            ok = writeFramebufferDashboard() && ok;
-        }
-        if (!ok) {
+        const int iconSize = std::min(148, std::max(88, std::min(launcherCanvas.width(), launcherCanvas.height()) / 4));
+        const Rect iconBounds {
+            (launcherCanvas.width() - iconSize) / 2,
+            (launcherCanvas.height() - iconSize) / 2 - 18,
+            iconSize,
+            iconSize,
+        };
+        const Rect launchBounds {
+            iconBounds.x - 32,
+            iconBounds.y - 32,
+            iconBounds.width + 64,
+            iconBounds.height + 96,
+        };
+        drawLauncherScreen(launcherCanvas, iconBounds);
+
+        auto launcher = std::make_unique<LauncherState>();
+        const std::string device = resolveLauncherInputDevice(launcherInputDevice_);
+        launcher->fd = ::open(device.c_str(), O_RDONLY | O_NONBLOCK);
+        if (launcher->fd < 0) {
+            outdoor::log::Logger::error("Failed to open launcher input device " + device + ": "
+                                        + std::strerror(errno));
             return false;
         }
 
-        if (index + 1 < iterations && refreshIntervalMs_ > 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(refreshIntervalMs_));
-        }
+        launcher->launchBounds = launchBounds;
+        launcher->screenWidth = launcherCanvas.width();
+        launcher->screenHeight = launcherCanvas.height();
+        launcher->absXRange = queryAxisRange(launcher->fd, ABS_X);
+        launcher->absYRange = queryAxisRange(launcher->fd, ABS_Y);
+        launcher->mtXRange = queryAxisRange(launcher->fd, ABS_MT_POSITION_X);
+        launcher->mtYRange = queryAxisRange(launcher->fd, ABS_MT_POSITION_Y);
+        launcher->currentXRange = launcher->mtXRange.valid ? launcher->mtXRange : launcher->absXRange;
+        launcher->currentYRange = launcher->mtYRange.valid ? launcher->mtYRange : launcher->absYRange;
+        launcher->startedAt = std::chrono::steady_clock::now();
+        launcherState_ = std::move(launcher);
+        outdoor::log::Logger::info("Launcher waiting for icon tap on " + device);
     }
+#else
+    if (launcherEnabled_ && (outputMode_ == "framebuffer" || outputMode_ == "both")) {
+        outdoor::log::Logger::error("Launcher touch input is only available on Linux evdev targets");
+        return false;
+    }
+#endif
+
     return true;
 }
 
-void DashboardService::stop() {}
+outdoor::runtime::ServicePollResult DashboardService::poll()
+{
+    if (launcherState_) {
+        const auto launcherResult = pollLauncher();
+        if (launcherResult != outdoor::runtime::ServicePollResult::Completed) {
+            return launcherResult;
+        }
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now < nextRefreshAt_) {
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+
+    bool ok = true;
+    if (outputMode_ == "text" || outputMode_ == "both") {
+        ok = writeTextDashboard() && ok;
+    }
+    if (outputMode_ == "framebuffer" || outputMode_ == "both") {
+        ok = writeFramebufferDashboard() && ok;
+    }
+    if (!ok) {
+        return outdoor::runtime::ServicePollResult::Failed;
+    }
+
+    ++completedRefreshCount_;
+    if (refreshCount_ > 0U && completedRefreshCount_ >= refreshCount_) {
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
+
+    nextRefreshAt_ = now + std::chrono::milliseconds(refreshIntervalMs_);
+    return outdoor::runtime::ServicePollResult::Running;
+}
+
+void DashboardService::stop()
+{
+    launcherState_.reset();
+}
+
+outdoor::runtime::ServicePollResult DashboardService::pollLauncher()
+{
+#ifdef _WIN32
+    return outdoor::runtime::ServicePollResult::Failed;
+#else
+    if (!launcherState_) {
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
+
+    auto& launcher = *launcherState_;
+    if (launcherAutoStartSeconds_ > 0U) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - launcher.startedAt);
+        if (elapsed.count() >= launcherAutoStartSeconds_) {
+            outdoor::log::Logger::info("Launcher auto-start timeout reached");
+            launcherState_.reset();
+            return outdoor::runtime::ServicePollResult::Completed;
+        }
+    }
+
+    while (true) {
+        input_event event {};
+        const ssize_t bytesRead = ::read(launcher.fd, &event, sizeof(event));
+        if (bytesRead < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                return outdoor::runtime::ServicePollResult::Running;
+            }
+            outdoor::log::Logger::error("Launcher input read failed: " + std::string(std::strerror(errno)));
+            return outdoor::runtime::ServicePollResult::Failed;
+        }
+        if (bytesRead == 0) {
+            return outdoor::runtime::ServicePollResult::Running;
+        }
+        if (bytesRead != sizeof(event)) {
+            continue;
+        }
+
+        if (event.type == EV_ABS) {
+            if (event.code == ABS_X) {
+                launcher.rawX = event.value;
+                launcher.currentXRange = launcher.absXRange;
+                launcher.haveX = true;
+                launcher.coordinateUpdated = true;
+            } else if (event.code == ABS_Y) {
+                launcher.rawY = event.value;
+                launcher.currentYRange = launcher.absYRange;
+                launcher.haveY = true;
+                launcher.coordinateUpdated = true;
+            } else if (event.code == ABS_MT_POSITION_X) {
+                launcher.rawX = event.value;
+                launcher.currentXRange = launcher.mtXRange;
+                launcher.haveX = true;
+                launcher.coordinateUpdated = true;
+            } else if (event.code == ABS_MT_POSITION_Y) {
+                launcher.rawY = event.value;
+                launcher.currentYRange = launcher.mtYRange;
+                launcher.haveY = true;
+                launcher.coordinateUpdated = true;
+            } else if (event.code == ABS_MT_TRACKING_ID) {
+                launcher.sawTouchSignal = true;
+                launcher.touching = event.value >= 0;
+            }
+        } else if (event.type == EV_KEY && event.code == BTN_TOUCH) {
+            launcher.sawTouchSignal = true;
+            launcher.touching = event.value != 0;
+        } else if (event.type == EV_SYN && event.code == SYN_REPORT && launcher.haveX && launcher.haveY) {
+            const bool shouldCheckTap = launcher.touching
+                || (!launcher.sawTouchSignal && launcher.coordinateUpdated);
+            launcher.coordinateUpdated = false;
+            if (!shouldCheckTap) {
+                continue;
+            }
+
+            const int x = mapAxisToScreen(launcher.rawX, launcher.currentXRange, launcher.screenWidth);
+            const int y = mapAxisToScreen(launcher.rawY, launcher.currentYRange, launcher.screenHeight);
+            if (contains(launcher.launchBounds, x, y)) {
+                outdoor::log::Logger::info("Launcher icon tapped at x=" + std::to_string(x)
+                                           + ", y=" + std::to_string(y));
+                launcherState_.reset();
+                return outdoor::runtime::ServicePollResult::Completed;
+            }
+        }
+    }
+#endif
+}
 
 bool DashboardService::writeTextDashboard()
 {
@@ -532,12 +877,10 @@ bool DashboardService::writeFramebufferDashboard()
 
     canvas.fillRect(6, 6, sidebarWidth - 10, 58, {7, 20, 42});
     canvas.drawRect(6, 6, sidebarWidth - 10, 58, borderDim);
-    canvas.drawThickLine(23, 46, 39, 20, cyan, 4);
-    canvas.drawThickLine(39, 20, 55, 46, cyanSoft, 4);
-    canvas.drawThickLine(31, 46, 49, 28, blue, 4);
-    canvas.drawLine(20, 50, 70, 50, cyanSoft);
-    canvas.drawText(76, 18, "OUTDOOR", white, 2);
-    canvas.drawText(76, 40, "AGENT", cyan, 2);
+    drawAppIcon(canvas, 16, 14, 42, {9, 31, 57}, border, cyan, cyanSoft, blue, white);
+    canvas.drawText(70, 18, "OUTDOOR", white, 1);
+    canvas.drawText(70, 34, "AGENT", cyan, 1);
+    canvas.drawText(70, 48, "APP", muted, 1);
 
     canvas.fillRect(8, 78, sidebarWidth - 16, screenHeight - 130, {5, 16, 35});
     canvas.drawRect(8, 78, sidebarWidth - 16, screenHeight - 130, borderDim);
@@ -603,30 +946,58 @@ bool DashboardService::writeFramebufferDashboard()
     canvas.drawText(compassCx + 86, compassCy - 4, "E", white, 1);
     canvas.drawText(compassCx - 92, compassCy - 4, "W", white, 1);
     canvas.drawText(compassCx - 5, compassCy + 84, "S", muted, 1);
-    const double course = fix.courseDegrees == 0.0 ? 62.3 : fix.courseDegrees;
-    const double courseRad = course * kPi / 180.0;
-    const int needleX = compassCx + static_cast<int>(std::sin(courseRad) * 62.0);
-    const int needleY = compassCy - static_cast<int>(std::cos(courseRad) * 62.0);
-    canvas.drawThickLine(compassCx, compassCy, needleX, needleY, cyan, 9);
-    canvas.drawThickLine(compassCx, compassCy, compassCx - (needleX - compassCx) / 3, compassCy - (needleY - compassCy) / 3, blue, 6);
+    const auto& compass = mcuStatus_.compassStatus;
+    const bool gnssCourseValid = fix.valid && fix.speedKmh >= 1.0
+                              && std::isfinite(fix.courseDegrees);
+    const bool headingValid = compass.valid || gnssCourseValid;
+    const double heading = compass.valid ? compass.headingDegrees : fix.courseDegrees;
+    if (headingValid) {
+        const double headingRad = heading * kPi / 180.0;
+        const int needleX = compassCx + static_cast<int>(std::sin(headingRad) * 62.0);
+        const int needleY = compassCy - static_cast<int>(std::cos(headingRad) * 62.0);
+        canvas.drawThickLine(compassCx, compassCy, needleX, needleY, cyan, 9);
+        canvas.drawThickLine(compassCx,
+                             compassCy,
+                             compassCx - (needleX - compassCx) / 3,
+                             compassCy - (needleY - compassCy) / 3,
+                             blue,
+                             6);
+    }
     canvas.fillCircle(compassCx, compassCy, 6, white);
-    canvas.drawText(compassX + 72, compassY + 214, "NE 62", white, 4);
-    canvas.drawText(compassX + 98, compassY + 254, "NORTH EAST", muted, 1);
+    const std::string headingText = headingValid
+        ? compassDirectionShort(heading) + " " + formattedHeading(heading)
+        : "-- ---";
+    const std::string directionText = headingValid
+        ? compassDirectionLong(heading)
+        : "HEADING UNAVAILABLE";
+    canvas.drawText(compassX + 54, compassY + 214, headingText, white, 4);
+    canvas.drawText(compassX + 62, compassY + 254, directionText, muted, 1);
     canvas.fillRect(compassX + 10, compassY + topCardH - 52, compassW - 20, 42, {8, 29, 55});
     canvas.drawRect(compassX + 10, compassY + topCardH - 52, compassW - 20, 42, borderDim);
     const auto& magnetic = mcuStatus_.magnetometerSample;
     const double magneticX = outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticXNt);
     const double magneticY = outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticYNt);
     const double magneticZ = outdoor::protocol::nanoTeslaToMicroTesla(magnetic.magneticZNt);
-    const double magneticStrength = std::sqrt(
+    const double rawMagneticStrength = std::sqrt(
         magneticX * magneticX + magneticY * magneticY + magneticZ * magneticZ);
+    const double magneticStrength = compass.valid
+        ? compass.fieldStrengthMicroTesla
+        : rawMagneticStrength;
     drawSmallMetric(compassX + 22,
                     compassY + topCardH - 42,
                     "MAG",
                     mcuStatus_.magnetometerSeen ? fixedValue(magneticStrength, 1) + "UT" : "--",
                     cyanSoft);
-    drawSmallMetric(compassX + 95, compassY + topCardH - 42, "AZIMUTH", fixedValue(course, 1), white);
-    drawSmallMetric(compassX + 172, compassY + topCardH - 42, "PITCH", fixedValue(boardImuStatus_.accelXG * 2.0, 1), white);
+    drawSmallMetric(compassX + 95,
+                    compassY + topCardH - 42,
+                    "AZIMUTH",
+                    headingValid ? fixedValue(heading, 1) : "--",
+                    white);
+    drawSmallMetric(compassX + 172,
+                    compassY + topCardH - 42,
+                    "PITCH",
+                    compass.valid ? fixedValue(compass.pitchDegrees, 1) : "--",
+                    white);
 
     drawPanel(speedX, compassY, speedW, topCardH, "SPEED", cyan);
     const int speedCx = speedX + speedW / 2;
@@ -764,6 +1135,8 @@ std::string DashboardService::render() const
            << "outdoor-agent\n"
            << "=============\n"
            << "mode: field dashboard\n"
+           << "app_icon: outdoor-agent compass mark\n"
+           << "app_icon_visible: true\n"
            << "ai_agent_state: planned\n\n"
            << "[GNSS / u-blox M10]\n"
            << "source: " << gnssStatus_.source << "\n"
@@ -819,6 +1192,23 @@ std::string DashboardService::render() const
                << "barometer_temperature_celsius: "
                << outdoor::protocol::centiCelsiusToCelsiusBarometer(
                       mcuStatus_.barometerSample.temperatureCentiC) << "\n";
+    }
+
+    const auto& compass = mcuStatus_.compassStatus;
+    stream << "\n[Compass]\n"
+           << "enabled: " << (compass.enabled ? "true" : "false") << "\n"
+           << "valid: " << (compass.valid ? "true" : "false") << "\n"
+           << "calibration_applied: "
+           << (compass.calibrationApplied ? "true" : "false") << "\n"
+           << "tilt_compensated: " << (compass.tiltCompensated ? "true" : "false") << "\n"
+           << "heading_deg: " << compass.headingDegrees << "\n"
+           << "magnetic_heading_deg: " << compass.magneticHeadingDegrees << "\n"
+           << "roll_deg: " << compass.rollDegrees << "\n"
+           << "pitch_deg: " << compass.pitchDegrees << "\n"
+           << "field_strength_ut: " << compass.fieldStrengthMicroTesla << "\n"
+           << "quality: " << compass.quality << "\n";
+    if (!compass.lastError.empty()) {
+        stream << "last_error: " << compass.lastError << "\n";
     }
 
     stream << "\n[MP157 Board IMU]\n"

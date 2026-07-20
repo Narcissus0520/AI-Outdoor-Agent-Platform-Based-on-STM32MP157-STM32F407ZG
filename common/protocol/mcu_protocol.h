@@ -13,12 +13,17 @@ constexpr std::size_t kFrameCrcSize = 2;
 constexpr std::size_t kMaxPayloadSize = 64;
 
 constexpr std::uint8_t MSG_TYPE_HEARTBEAT = 0x01;
+constexpr std::uint8_t MSG_TYPE_SENSOR_HUB_DIAGNOSTICS = 0x02;
 constexpr std::uint8_t MSG_TYPE_MOCK_SENSOR = 0x10;
 constexpr std::uint8_t MSG_TYPE_SENSOR_IMU = 0x11;
 constexpr std::uint8_t MSG_TYPE_SENSOR_MAGNETOMETER = 0x12;
 constexpr std::uint8_t MSG_TYPE_SENSOR_BAROMETER = 0x13;
 constexpr std::uint8_t MSG_TYPE_COMMAND_PING = 0x80;
 constexpr std::uint8_t MSG_TYPE_COMMAND_ACK = 0x81;
+
+constexpr std::size_t kSensorHubDiagnosticsLegacyPayloadSize = 44;
+constexpr std::size_t kSensorHubDiagnosticsPayloadSize = 48;
+constexpr std::uint8_t kSensorHubDiagnosticsExtensionVersion = 1;
 
 inline std::uint16_t crc16Modbus(const std::uint8_t* data, std::size_t size)
 {

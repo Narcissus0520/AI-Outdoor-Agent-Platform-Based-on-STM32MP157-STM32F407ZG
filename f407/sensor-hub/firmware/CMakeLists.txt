@@ -5,6 +5,22 @@ project(sensor_hub_firmware
     LANGUAGES C
 )
 
+option(SENSOR_HUB_ICM42688_ONLY_DIAGNOSTIC
+    "Build a non-production image that does not initialize or poll MMC5603/BMP390"
+    OFF
+)
+
+set(SENSOR_HUB_I2C2_CLOCK_HZ "400000" CACHE STRING
+    "I2C2 clock for controlled 100 kHz/400 kHz sensor-bus A/B builds"
+)
+set_property(CACHE SENSOR_HUB_I2C2_CLOCK_HZ PROPERTY STRINGS 100000 400000)
+if(NOT SENSOR_HUB_I2C2_CLOCK_HZ STREQUAL "100000" AND
+   NOT SENSOR_HUB_I2C2_CLOCK_HZ STREQUAL "400000")
+    message(FATAL_ERROR
+        "SENSOR_HUB_I2C2_CLOCK_HZ must be 100000 or 400000"
+    )
+endif()
+
 if(NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "F407 firmware requires arm-none-eabi-gcc")
 endif()
@@ -62,6 +78,7 @@ add_executable(sensor_hub
     bsp/board_icm42688_gpio.c
     bsp/board_tick.c
     bsp/board_uart.c
+    bsp/uart_tx_queue_c.c
     bsp/stm32/board_i2c_stm32.c
     bsp/stm32/board_icm42688_gpio_stm32.c
     bsp/stm32/board_tick_stm32.c
@@ -70,9 +87,12 @@ add_executable(sensor_hub
     protocol/mcu_command_decoder_c.c
     protocol/mcu_frame_builder_c.c
     sensors/bmp390_provider_c.c
+    sensors/icm42688_fifo_parser_c.c
     sensors/icm42688_provider_c.c
+    sensors/imu_timestamp_normalizer_c.c
     sensors/mmc5603_provider_c.c
     sensors/mock_imu_provider_c.c
+    sensors/sensor_sample_filter_c.c
     third_party/bosch_bmp3/bmp3.c
     ${CUBE_CORE_SOURCES}
     ${HAL_SOURCES}
@@ -97,6 +117,24 @@ target_compile_definitions(sensor_hub PRIVATE
     USE_HAL_DRIVER
     STM32F407xx
 )
+
+if(SENSOR_HUB_ICM42688_ONLY_DIAGNOSTIC)
+    target_compile_definitions(sensor_hub PRIVATE
+        SENSOR_HUB_ICM42688_ONLY_DIAGNOSTIC=1
+    )
+    message(WARNING
+        "Building ICM42688-only diagnostic firmware; do not use for production validation"
+    )
+endif()
+
+if(NOT SENSOR_HUB_I2C2_CLOCK_HZ STREQUAL "400000")
+    target_compile_definitions(sensor_hub PRIVATE
+        SENSOR_HUB_I2C2_CLOCK_HZ=${SENSOR_HUB_I2C2_CLOCK_HZ}U
+    )
+    message(WARNING
+        "Building non-default I2C2 clock ${SENSOR_HUB_I2C2_CLOCK_HZ} Hz; use only for controlled A/B validation"
+    )
+endif()
 
 target_include_directories(sensor_hub PRIVATE
     "${CUBE_ROOT}/Core/Inc"

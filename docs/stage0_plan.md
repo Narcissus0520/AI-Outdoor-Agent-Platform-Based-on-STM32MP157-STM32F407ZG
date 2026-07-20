@@ -49,3 +49,7 @@ Stage 0 目标：完成 Linux 用户态 Runtime 原型，为后续 GNSS、Sensor
 - 暂不实现串口、HTTP API、UI 和 AI 功能
 - 暂不假设 UBLOX-M10 已完成真实接入
 - 暂不假设 STM32F407ZG 已完成通信联调
+
+## Stage 1 后续演进说明
+
+Stage 0 建立的顺序阻塞式 Service 生命周期已在 Stage 1 演进为单线程协作式 `poll()` 调度。该变化不修改 Stage 0 的历史完成状态；当前设计、方案比较和剩余板端验证见 [ADR-0017](adr/0017-use-cooperative-runtime-service-scheduler.md) 与 [Stage 1 Plan](stage1_plan.md#stage-114-mp157-cooperative-runtime-scheduler)。

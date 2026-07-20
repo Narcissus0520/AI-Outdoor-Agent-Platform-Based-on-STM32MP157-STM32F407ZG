@@ -24,7 +24,9 @@ enum {
     MMC5603_NT_PER_LSB_NUMERATOR = 25U,
     MMC5603_NT_PER_LSB_DENOMINATOR = 4U,
     MMC5603_DATA_SIZE = 9U,
-    MMC5603_MEASUREMENT_TIMEOUT_MS = 20U,
+    MMC5603_MEASUREMENT_SETTLE_MS = 7U,
+    MMC5603_STATUS_POLL_ATTEMPTS = 3U,
+    MMC5603_STATUS_POLL_INTERVAL_MS = 1U,
 };
 
 static void delay_ms(uint32_t delay)
@@ -102,7 +104,7 @@ int mmc5603_provider_read(mmc5603_provider_t* provider,
 {
     uint8_t data[MMC5603_DATA_SIZE] = {0};
     uint8_t status = 0U;
-    uint32_t start;
+    uint32_t poll_attempt;
     uint32_t raw_x;
     uint32_t raw_y;
     uint32_t raw_z;
@@ -115,15 +117,18 @@ int mmc5603_provider_read(mmc5603_provider_t* provider,
         return -1;
     }
 
-    start = board_get_tick_ms();
-    do {
+    delay_ms(MMC5603_MEASUREMENT_SETTLE_MS);
+    for (poll_attempt = 0U;
+         poll_attempt < MMC5603_STATUS_POLL_ATTEMPTS;
+         ++poll_attempt) {
         if (read_reg(MMC5603_STATUS1, &status) != 0) {
             return -1;
         }
         if ((status & MMC5603_STATUS_MEAS_M_DONE) != 0U) {
             break;
         }
-    } while ((uint32_t)(board_get_tick_ms() - start) < MMC5603_MEASUREMENT_TIMEOUT_MS);
+        delay_ms(MMC5603_STATUS_POLL_INTERVAL_MS);
+    }
 
     if ((status & MMC5603_STATUS_MEAS_M_DONE) == 0U) {
         return -1;

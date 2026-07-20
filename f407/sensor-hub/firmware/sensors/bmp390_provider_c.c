@@ -53,7 +53,9 @@ static int initialize_at_address(bmp390_provider_t* provider, uint8_t address)
     provider->device.intf_ptr = &provider->i2c_address;
 
     result = bmp3_init(&provider->device);
-    if (result != BMP3_OK || provider->device.chip_id != BMP390_CHIP_ID) {
+    if (result != BMP3_OK ||
+        (provider->device.chip_id != BMP390_CHIP_ID &&
+         provider->device.chip_id != BMP3_CHIP_ID)) {
         return -1;
     }
 
@@ -88,8 +90,8 @@ int bmp390_provider_init(bmp390_provider_t* provider)
     }
 
     memset(provider, 0, sizeof(*provider));
-    if (initialize_at_address(provider, BMP3_ADDR_I2C_SEC) != 0 &&
-        initialize_at_address(provider, BMP3_ADDR_I2C_PRIM) != 0) {
+    if (initialize_at_address(provider, BMP3_ADDR_I2C_PRIM) != 0 &&
+        initialize_at_address(provider, BMP3_ADDR_I2C_SEC) != 0) {
         return -1;
     }
 
@@ -101,23 +103,12 @@ int bmp390_provider_read(bmp390_provider_t* provider,
                          uint32_t uptime_ms,
                          barometer_sample_c_t* sample)
 {
-    struct bmp3_status status;
     struct bmp3_data data;
     int8_t result;
     uint64_t pressure_pa;
 
     if (provider == 0 || sample == 0 || provider->initialized == 0) {
         return -1;
-    }
-
-    memset(&status, 0, sizeof(status));
-    result = bmp3_get_status(&status, &provider->device);
-    if (result != BMP3_OK) {
-        return -1;
-    }
-    if (status.sensor.drdy_press == BMP3_DISABLE ||
-        status.sensor.drdy_temp == BMP3_DISABLE) {
-        return 1;
     }
 
     result = bmp3_get_sensor_data(BMP3_PRESS_TEMP, &data, &provider->device);

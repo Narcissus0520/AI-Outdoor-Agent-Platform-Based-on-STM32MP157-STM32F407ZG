@@ -5,7 +5,6 @@
 #include <array>
 #include <chrono>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -60,12 +59,14 @@ McuSerialService::McuSerialService(std::string devicePath,
                                    std::uint32_t baudRate,
                                    std::uint32_t captureSeconds,
                                    outdoor::mcu::McuCommand command,
-                                   outdoor::mcu::McuStatus& status)
+                                   outdoor::mcu::McuStatus& status,
+                                   std::function<bool(std::string&)> statusUpdatedCallback)
     : devicePath_(std::move(devicePath)),
       baudRate_(baudRate),
       captureSeconds_(captureSeconds),
       command_(command),
-      status_(status)
+      status_(status),
+      statusUpdatedCallback_(std::move(statusUpdatedCallback))
 {
 }
 
@@ -102,91 +103,108 @@ bool McuSerialService::start()
     }
 
     streamDecoder_.reset();
+    if (!prepareConfiguredCommand(error)) {
+        status_.lastError = error;
+        outdoor::log::Logger::error(status_.lastError);
+        closePort();
+        return false;
+    }
+    deadlineEnabled_ = captureSeconds_ > 0U;
+    if (deadlineEnabled_) {
+        deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(captureSeconds_);
+    }
     outdoor::log::Logger::info("MCU serial input opened: " + devicePath_);
     return true;
 #endif
 }
 
-bool McuSerialService::run()
+outdoor::runtime::ServicePollResult McuSerialService::poll()
 {
 #ifdef _WIN32
-    return false;
+    return outdoor::runtime::ServicePollResult::Failed;
 #else
     if (fd_ < 0) {
         status_.lastError = "MCU serial device is not open";
         outdoor::log::Logger::error(status_.lastError);
-        return false;
+        return outdoor::runtime::ServicePollResult::Failed;
+    }
+
+    if (!commandSent_) {
+        const auto commandResult = pollConfiguredCommand();
+        if (commandResult != outdoor::runtime::ServicePollResult::Completed) {
+            return commandResult;
+        }
+    }
+
+    if (deadlineEnabled_ && std::chrono::steady_clock::now() >= deadline_) {
+        if (!status_.heartbeatSeen && !status_.imuSeen) {
+            status_.lastError = "MCU serial capture completed without heartbeat or IMU frames";
+            outdoor::log::Logger::warn(status_.lastError);
+            return outdoor::runtime::ServicePollResult::Failed;
+        }
+
+        if (command_ == outdoor::mcu::McuCommand::Ping && !status_.commandAckSeen) {
+            status_.lastError = "MCU serial capture completed without command ack";
+            outdoor::log::Logger::warn(status_.lastError);
+            return outdoor::runtime::ServicePollResult::Failed;
+        }
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
+
+    std::array<std::uint8_t, 256U> buffer {};
+    const ssize_t readSize = ::read(fd_, buffer.data(), buffer.size());
+    if (readSize < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return outdoor::runtime::ServicePollResult::Running;
+        }
+        status_.lastError = errnoMessage("failed to read MCU serial device " + devicePath_);
+        outdoor::log::Logger::error(status_.lastError);
+        return outdoor::runtime::ServicePollResult::Failed;
+    }
+
+    if (readSize == 0) {
+        return outdoor::runtime::ServicePollResult::Running;
     }
 
     std::string error;
-    if (!sendConfiguredCommand(error)) {
+    std::vector<std::vector<std::uint8_t>> rawFrames;
+    if (!streamDecoder_.feed(buffer.data(), static_cast<std::size_t>(readSize), rawFrames, error)) {
         status_.lastError = error;
-        outdoor::log::Logger::error(status_.lastError);
-        return false;
+        outdoor::log::Logger::warn(error);
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+    if (!error.empty()) {
+        status_.lastError = error;
+        outdoor::log::Logger::debug(error);
     }
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(captureSeconds_);
-    std::array<std::uint8_t, 256U> buffer {};
-    while (std::chrono::steady_clock::now() < deadline) {
-        const ssize_t readSize = ::read(fd_, buffer.data(), buffer.size());
-        if (readSize < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
-            }
-            status_.lastError = errnoMessage("failed to read MCU serial device " + devicePath_);
-            outdoor::log::Logger::error(status_.lastError);
-            return false;
-        }
-
-        if (readSize == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (const auto& rawFrame : rawFrames) {
+        outdoor::mcu::McuFrame frame;
+        if (!parser_.parseFrame(rawFrame, frame, error)) {
+            status_.lastError = error;
+            outdoor::log::Logger::debug("MCU serial frame skipped: " + error);
             continue;
         }
 
-        std::vector<std::vector<std::uint8_t>> rawFrames;
-        error.clear();
-        if (!streamDecoder_.feed(buffer.data(), static_cast<std::size_t>(readSize), rawFrames, error)) {
+        if (!parser_.applyFrame(frame, status_, error)) {
             status_.lastError = error;
-            outdoor::log::Logger::warn(error);
+            outdoor::log::Logger::warn("MCU serial frame apply failed: " + error);
             continue;
         }
-        if (!error.empty()) {
-            status_.lastError = error;
-            outdoor::log::Logger::debug(error);
+
+        if (statusUpdatedCallback_) {
+            std::string callbackError;
+            if (!statusUpdatedCallback_(callbackError)) {
+                status_.lastError = "MCU status update callback failed: " + callbackError;
+                outdoor::log::Logger::error(status_.lastError);
+                return outdoor::runtime::ServicePollResult::Failed;
+            }
         }
 
-        for (const auto& rawFrame : rawFrames) {
-            outdoor::mcu::McuFrame frame;
-            if (!parser_.parseFrame(rawFrame, frame, error)) {
-                status_.lastError = error;
-                outdoor::log::Logger::debug("MCU serial frame skipped: " + error);
-                continue;
-            }
-
-            if (!parser_.applyFrame(frame, status_, error)) {
-                status_.lastError = error;
-                outdoor::log::Logger::warn("MCU serial frame apply failed: " + error);
-                continue;
-            }
-
-            outdoor::log::Logger::info(outdoor::mcu::formatMcuStatus(status_));
-        }
+        outdoor::log::Logger::info(outdoor::mcu::formatMcuStatus(status_));
     }
 
-    if (!status_.heartbeatSeen && !status_.imuSeen) {
-        status_.lastError = "MCU serial capture completed without heartbeat or IMU frames";
-        outdoor::log::Logger::warn(status_.lastError);
-        return false;
-    }
-
-    if (command_ == outdoor::mcu::McuCommand::Ping && !status_.commandAckSeen) {
-        status_.lastError = "MCU serial capture completed without command ack";
-        outdoor::log::Logger::warn(status_.lastError);
-        return false;
-    }
-
-    return true;
+    return outdoor::runtime::ServicePollResult::Running;
 #endif
 }
 
@@ -241,47 +259,66 @@ bool McuSerialService::configurePort(std::string& error)
 #endif
 }
 
-bool McuSerialService::sendConfiguredCommand(std::string& error)
+bool McuSerialService::prepareConfiguredCommand(std::string& error)
 {
 #ifdef _WIN32
     error = "MCU serial command is only supported on Linux targets";
     return false;
 #else
+    commandFrame_.clear();
+    commandBytesWritten_ = 0;
+    commandSent_ = command_ == outdoor::mcu::McuCommand::None;
     if (command_ == outdoor::mcu::McuCommand::None) {
         error.clear();
         return true;
     }
 
-    std::vector<std::uint8_t> frame;
     if (command_ == outdoor::mcu::McuCommand::Ping) {
-        frame = outdoor::mcu::buildPingCommandFrame(1U, outdoor::mcu::kDefaultPingNonce);
+        commandFrame_ = outdoor::mcu::buildPingCommandFrame(1U, outdoor::mcu::kDefaultPingNonce);
     } else {
         error = "unsupported MCU serial command";
         return false;
     }
 
-    std::size_t written = 0;
-    while (written < frame.size()) {
-        const ssize_t writeSize = ::write(fd_, frame.data() + written, frame.size() - written);
-        if (writeSize < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
-            }
-            error = errnoMessage("failed to write MCU serial command to " + devicePath_);
-            return false;
-        }
-        if (writeSize == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
-        written += static_cast<std::size_t>(writeSize);
+    error.clear();
+    return true;
+#endif
+}
+
+outdoor::runtime::ServicePollResult McuSerialService::pollConfiguredCommand()
+{
+#ifdef _WIN32
+    return outdoor::runtime::ServicePollResult::Failed;
+#else
+    if (commandSent_) {
+        return outdoor::runtime::ServicePollResult::Completed;
     }
+
+    const ssize_t writeSize = ::write(fd_,
+                                      commandFrame_.data() + commandBytesWritten_,
+                                      commandFrame_.size() - commandBytesWritten_);
+    if (writeSize < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return outdoor::runtime::ServicePollResult::Running;
+        }
+        status_.lastError = errnoMessage("failed to write MCU serial command to " + devicePath_);
+        outdoor::log::Logger::error(status_.lastError);
+        return outdoor::runtime::ServicePollResult::Failed;
+    }
+    if (writeSize == 0) {
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+    commandBytesWritten_ += static_cast<std::size_t>(writeSize);
+
+    if (commandBytesWritten_ < commandFrame_.size()) {
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+
+    commandSent_ = true;
 
     outdoor::log::Logger::info(std::string("MCU serial command sent: ") +
                                outdoor::mcu::mcuCommandToString(command_));
-    error.clear();
-    return true;
+    return outdoor::runtime::ServicePollResult::Completed;
 #endif
 }
 

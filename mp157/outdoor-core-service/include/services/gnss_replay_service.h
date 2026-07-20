@@ -15,7 +15,7 @@ public:
 
     const char* name() const override;
     bool start() override;
-    bool run() override;
+    outdoor::runtime::ServicePollResult poll() override;
     void stop() override;
 
 private:

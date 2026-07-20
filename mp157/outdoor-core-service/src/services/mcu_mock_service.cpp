@@ -29,9 +29,12 @@ int hexValue(char value)
 
 } // namespace
 
-McuMockService::McuMockService(std::string frameInputPath, outdoor::mcu::McuStatus& status)
+McuMockService::McuMockService(std::string frameInputPath,
+                               outdoor::mcu::McuStatus& status,
+                               std::function<bool(std::string&)> statusUpdatedCallback)
     : frameInputPath_(std::move(frameInputPath)),
-      status_(status) {}
+      status_(status),
+      statusUpdatedCallback_(std::move(statusUpdatedCallback)) {}
 
 const char* McuMockService::name() const
 {
@@ -40,63 +43,76 @@ const char* McuMockService::name() const
 
 bool McuMockService::start()
 {
-    std::ifstream stream(frameInputPath_);
-    if (!stream.is_open()) {
+    stop();
+    stream_.open(frameInputPath_);
+    if (!stream_.is_open()) {
         status_.lastError = "failed to open MCU mock frame file: " + frameInputPath_;
         outdoor::log::Logger::error(status_.lastError);
         return false;
     }
 
+    lineNumber_ = 0;
     outdoor::log::Logger::info("MCU mock frame input opened: " + frameInputPath_);
     return true;
 }
 
-bool McuMockService::run()
+outdoor::runtime::ServicePollResult McuMockService::poll()
 {
-    std::ifstream stream(frameInputPath_);
-    if (!stream.is_open()) {
+    if (!stream_.is_open()) {
         status_.lastError = "failed to read MCU mock frame file: " + frameInputPath_;
         outdoor::log::Logger::error(status_.lastError);
-        return false;
+        return outdoor::runtime::ServicePollResult::Failed;
     }
 
     std::string line;
-    int lineNumber = 0;
-    while (std::getline(stream, line)) {
-        ++lineNumber;
+    if (!std::getline(stream_, line)) {
+        return outdoor::runtime::ServicePollResult::Completed;
+    }
+    ++lineNumber_;
 
-        std::vector<std::uint8_t> bytes;
-        std::string error;
-        if (!parseHexLine(line, bytes, error)) {
-            if (!error.empty()) {
-                std::ostringstream message;
-                message << "MCU mock line " << lineNumber << " skipped: " << error;
-                outdoor::log::Logger::debug(message.str());
-            }
-            continue;
+    std::vector<std::uint8_t> bytes;
+    std::string error;
+    if (!parseHexLine(line, bytes, error)) {
+        if (!error.empty()) {
+            std::ostringstream message;
+            message << "MCU mock line " << lineNumber_ << " skipped: " << error;
+            outdoor::log::Logger::debug(message.str());
         }
-
-        outdoor::mcu::McuFrame frame;
-        if (!parser_.parseFrame(bytes, frame, error)) {
-            status_.lastError = error;
-            outdoor::log::Logger::debug("MCU frame skipped: " + error);
-            continue;
-        }
-
-        if (!parser_.applyFrame(frame, status_, error)) {
-            status_.lastError = error;
-            outdoor::log::Logger::warn("MCU frame apply failed: " + error);
-            continue;
-        }
-
-        outdoor::log::Logger::info(outdoor::mcu::formatMcuStatus(status_));
+        return outdoor::runtime::ServicePollResult::Running;
     }
 
-    return true;
+    outdoor::mcu::McuFrame frame;
+    if (!parser_.parseFrame(bytes, frame, error)) {
+        status_.lastError = error;
+        outdoor::log::Logger::debug("MCU frame skipped: " + error);
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+
+    if (!parser_.applyFrame(frame, status_, error)) {
+        status_.lastError = error;
+        outdoor::log::Logger::warn("MCU frame apply failed: " + error);
+        return outdoor::runtime::ServicePollResult::Running;
+    }
+
+    if (statusUpdatedCallback_) {
+        std::string callbackError;
+        if (!statusUpdatedCallback_(callbackError)) {
+            status_.lastError = "MCU status update callback failed: " + callbackError;
+            outdoor::log::Logger::error(status_.lastError);
+            return outdoor::runtime::ServicePollResult::Failed;
+        }
+    }
+
+    outdoor::log::Logger::info(outdoor::mcu::formatMcuStatus(status_));
+    return outdoor::runtime::ServicePollResult::Running;
 }
 
 void McuMockService::stop()
 {
+    if (stream_.is_open()) {
+        stream_.close();
+    }
+    stream_.clear();
 }
 
 bool McuMockService::parseHexLine(const std::string& line,
