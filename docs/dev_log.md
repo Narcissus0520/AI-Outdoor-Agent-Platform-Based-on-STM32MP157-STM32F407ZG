@@ -1,5 +1,44 @@
 # Dev Log
 
+## 2026-07-21 - Stage 2 Real MP157 Acceptance and Harness Hardening
+
+### 本次完成
+
+- 用户确认 COM3/COM9 空闲且 MP157、F407、GNSS 上电后，通过 COM9 建立板端身份、设备节点、systemd 和时间基线；仅同步本次会话时钟，不宣称 RTC/NTP 持久修复。
+- 使用 GNU ARM Linux 9.2.1 产物完成 19 文件 Stage 2 部署；首轮长权限命令被 console 截断后，将权限、service、逐文件 hash 和 syntax/state 阶段统一改为 600 字符有界批次，第二次部署在 118.4 秒内全部通过。
+- 首轮 Stage 2 验收证明可执行文件、unit 语法和 socket self-test 正常，但 disabled/inactive unit 的 `systemctl reset-failed` 返回 `Unit not loaded` 被脚本误当成启动失败；手工拆分验证 start rc=0 且 Runtime 可 active/running。
+- 将 `reset-failed` 改为 best effort，并把 start、active 和 socket 等待拆为独立诊断分支；修正版经 XMODEM-CRC 增量部署和板端 SHA256/语法回读后，第二轮完整验收通过。
+- 真实 MP157 已完成 socket 权限/冲突/连续三次查询、Agent mock 无/有 context、SIGTERM/socket 清理、受控重启和单次 SIGKILL 自动恢复；另行验证 enable/disable 并恢复初态。
+- TRB-20260721-041 至 047 保留时间异常、长命令截断、pager 复发、unit 名误判、PowerShell 引号/变量边界失败和 reset-failed 误判的完整失败/修复证据。
+
+### 修改文件
+
+- `scripts/board_command_batching.ps1`
+- `scripts/test_board_command_batching.ps1`
+- `scripts/deploy_mp157_runtime.ps1`
+- `mp157/outdoor-core-service/scripts/run_stage2_board_acceptance.sh`
+- `mp157/outdoor-core-service/scripts/verify_stage2_board_acceptance.ps1`
+- `mp157/outdoor-core-service/scripts/verify_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`、`docs/stage2_plan.md`
+- `docs/adr/0028-use-state-restoring-stage2-board-acceptance.md`
+- `docs/changelog.md`、`docs/dev_log.md`、`docs/troubleshooting_log.md`
+
+### 验证结果
+
+- 标准 `cmake -S mp157/outdoor-core-service -B mp157/outdoor-core-service/build`、Release build 和 CTest 14/14 在 55.4 秒内通过。
+- 完整 Runtime verifier 26.4 秒通过：board-command batching、Runtime supervision、Stage 2 acceptance contract 和 Runtime verification 全部 PASS；Git Bash 与板端 `sh -n` 通过。
+- 19 个部署文件和逐文件 SHA256 全部通过，最终 `deployment=PASSED ... runtime_enabled=False runtime_started=False`。
+- 通过报告目录为 `/tmp/outdoor-agent-stage2-acceptance-IIppv5/`；report 3431 B、SHA256 `d972d97dcc339d0e38d677f4369351e31daac08e7d2af26d28b96dc38e792786`。
+- Runtime PID 依次为 `2086 -> 2177 -> 2225`，失败恢复计数 `0 -> 1`；最终回读 loaded/inactive/dead/disabled、MainPID=0，socket 不存在。
+- 未操作 COM3、未烧录或复位 F407，未执行 MP157/F407/GNSS 物理上下电。
+
+### 后续 TODO
+
+- Stage 2 既定 mock/systemd/socket 范围已完成；真实模型 backend 继续保持 planned。
+- 返回 Stage 1 遗留验收，优先由用户配合完成 ICM42688 供电、共地、上拉和 I2C 波形证据，再决定正式三传感器固件与小时级验证。
+- 另行验证 MP157 RTC/NTP 或重启后的时间持久性；当前只保证本次会话证据时间可信。
+
 ## 2026-07-21 - Stage 2.4 Repeatable Board Acceptance Harness
 
 ### 本次完成
