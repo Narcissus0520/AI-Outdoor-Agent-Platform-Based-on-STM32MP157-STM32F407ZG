@@ -1,6 +1,6 @@
 # Outdoor Core Service
 
-`outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力、Stage 1 MCU/Sensor Integration，以及 Stage 2 本地只读 IPC、systemd 进程托管和 Local Agent mock 软件边界。
+`outdoor-core-service` 是 AI Outdoor Agent Platform 的 STM32MP157 Linux 主控侧 Runtime 服务。该模块独立使用 CMake 编译，当前包含 Stage 0 Linux Outdoor Core Runtime 能力、Stage 1 MCU/Sensor Integration，以及 Stage 2 本地只读 IPC、systemd 进程托管、Local Agent mock 软件边界和状态恢复型板端验收入口。
 
 本模块不包含 STM32F407ZG 固件代码，不实现 HTTP API 或真实 AI Agent；当前提供 `outdoor-agent` 文本和 fbdev framebuffer 仪表盘 APP 原型。
 
@@ -17,6 +17,7 @@
 - 默认关闭的 Unix domain stream socket 状态查询：复用状态文件 JSON schema，提供 `GET_STATUS`/`PING` 最小协议和 `outdoor_status_query` 客户端
 - 默认只安装不启动的 `outdoor-agent-runtime.service`，包含 ICM20608 loader 依赖、SIGTERM、失败重启上限、运行目录、沙箱和设备白名单
 - schema v1 的有界 Local Agent 请求/响应、可替换 backend 和 `outdoor_agent_terminal`；当前只提供明确不执行 AI inference 的确定性 mock
+- 显式 `--confirm` 的 Stage 2 板端验收脚本：保存/恢复 Runtime active/enabled 状态，覆盖 socket、mock terminal、SIGTERM 和失败自动恢复
 - `outdoor-agent` 仪表盘 APP 原型：`runtime/dashboard.txt` 文本输出、可选 `/dev/fb0` framebuffer 输出、主界面程序图标、轻量 fbdev/evdev APP launcher，以及板端 APP 配置/启动脚本
 - MCU mock frame 解析
 - `McuFrame` / `McuFrameParser` / `McuStatus`
@@ -60,16 +61,19 @@ outdoor-core-service/
 ├── config/
 │   ├── runtime.conf
 │   └── outdoor_agent_service.conf
-└── scripts/
-    ├── run_board_long_validation.sh
-    ├── run_board_health_preflight.sh
-    ├── monitor_board_runtime_health.sh
-    ├── audit_board_long_validation.sh
-    ├── run_board_crash_recovery_validation.sh
-    └── run_board_gnss_fix_validation.sh
+├── scripts/
+│   ├── run_board_long_validation.sh
+│   ├── run_board_health_preflight.sh
+│   ├── monitor_board_runtime_health.sh
+│   ├── audit_board_long_validation.sh
+│   ├── run_board_crash_recovery_validation.sh
+│   ├── run_board_gnss_fix_validation.sh
+│   └── run_stage2_board_acceptance.sh
+└── tests/
+    └── unix_status_service_tests
 ```
 
-六个验证脚本默认使用上述 Runtime 与配置路径，采集结果写到 `/run/media/mmcblk1p1` 下的唯一目录。健康预检、逐秒时间线和正式验收相互关联但保留独立产物；`/tmp` 仅保存当前测试 PID/root/monitor 指针，不再保存可执行文件和配置。
+前六个 Stage 1 验证脚本默认使用上述 Runtime 与配置路径，采集结果写到 `/run/media/mmcblk1p1` 下的唯一目录。健康预检、逐秒时间线和正式验收相互关联但保留独立产物；`/tmp` 仅保存当前测试 PID/root/monitor 指针，不再保存可执行文件和配置。Stage 2 验收脚本独立保存 `/tmp/outdoor-agent-stage2-acceptance-*` 证据，不启动第二个传感器 Runtime。
 
 室外 GNSS fix 验收可执行：
 
@@ -87,13 +91,21 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -PortName COM9
 ```
 
-部署会上传 Runtime、查询客户端、Local Agent terminal、普通验证配置、headless systemd 配置和两个 unit，并运行本地主机 supervision verifier。默认仅安装 Runtime unit，不 enable、不 start；ICM20608 loader 保持既有安装/启动行为。后续明确进入板端联调时，可附加：
+部署会上传 Runtime、查询客户端、Local Agent terminal、Unix socket self-test、Stage 1/2 验收脚本、普通验证配置、headless systemd 配置和两个 unit，并运行本地主机 supervision/acceptance verifier。默认仅安装 Runtime unit，不 enable、不 start；ICM20608 loader 保持既有安装/启动行为。后续明确进入板端联调时，可附加：
 
 ```powershell
 -EnableRuntimeService -StartRuntimeService
 ```
 
 `-StartRuntimeService` 会隐式 enable，并在 10 秒有界窗口内用 `outdoor_status_query` 检查 socket。正式小时长测前必须停止 `outdoor-agent-runtime.service`；现有预检/长测脚本也会拒绝竞争的 `outdoor_core_runtime` 进程。
+
+完整 Stage 2 生命周期验收必须由用户在板端联调窗口显式执行：
+
+```bash
+/opt/outdoor-agent/scripts/run_stage2_board_acceptance.sh --confirm
+```
+
+它会运行临时 socket self-test，检查 Runtime 目录/socket 权限、连续三次查询、Agent mock 无/有 context、SIGTERM 停止与 socket 删除、再次启动和单次 SIGKILL 自动恢复；退出或中断时恢复运行前 active/enabled 状态。没有 `--confirm` 不会进入 systemd 操作。该脚本不执行烧录、整板重启或物理上下电，本轮未在真实 MP157 运行。
 
 ### systemd Runtime 托管
 
@@ -344,6 +356,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify_runtime.ps1
 - systemd unit/config 正向静态检查，以及 restart disabled、unbounded restart、开放设备策略、socket disabled 四个负向 fixture
 - `outdoor_agent_service.conf` 经 Runtime 实际加载，并在 CLI 覆盖为 file/mock、关闭硬件后完成 stopped 状态 smoke
 - Local Agent 合法/拒绝/backend 失败与异常/输出超限/JSON 转义测试，以及 terminal help/mock smoke
+- Stage 2 验收脚本静态契约正向测试，以及确认门槛、恢复 trap、SIGKILL、重复查询、禁止上下电和 self-test 部署六个负向 fixture
 - storage 模式下的状态 JSON、文本 dashboard 和日志文件生成
 - history 模式下五类 CSV 的创建、数据追加和状态字段
 - History Recorder 去重、CSV 转义，以及日志轮转顺序和备份数量上限

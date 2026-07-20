@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $serviceRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 & (Join-Path $PSScriptRoot "verify_runtime_supervision_tests.ps1")
+& (Join-Path $PSScriptRoot "verify_stage2_board_acceptance_tests.ps1")
 $output = Join-Path $serviceRoot "outdoor_core_runtime_verify.exe"
 $statusOutput = Join-Path $serviceRoot "runtime\runtime_status_verify.json"
 $serviceConfigStatusOutput = Join-Path $serviceRoot "runtime\runtime_status_service_config_verify.json"

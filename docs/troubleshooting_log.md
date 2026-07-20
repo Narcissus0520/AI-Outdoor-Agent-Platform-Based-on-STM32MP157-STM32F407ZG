@@ -76,6 +76,7 @@
 | TRB-20260721-037 | 2026-07-21 | Runtime Supervision Tests | PowerShell 把预期失败子进程 stderr 提升为终止错误 | 已关闭 | A | [记录](#trb-20260721-037-powershell-把预期失败子进程-stderr-提升为终止错误) |
 | TRB-20260721-038 | 2026-07-21 | Stage 2.3 Verification | 提交前语法检查引用不存在的 verifier 文件名 | 已关闭 | A | [记录](#trb-20260721-038-提交前语法检查引用不存在的-verifier-文件名) |
 | TRB-20260721-039 | 2026-07-21 | GitHub PR Audit | 当前 `gh pr diff` 不支持 `--stat` 参数 | 已关闭 | A | [记录](#trb-20260721-039-当前-gh-pr-diff-不支持---stat-参数) |
+| TRB-20260721-040 | 2026-07-21 | Stage 2.4 Build Audit | 递归扫描整盘查找交叉编译器导致探测超时 | 已关闭 | A | [记录](#trb-20260721-040-递归扫描整盘查找交叉编译器导致探测超时) |
 
 ## 问题详细复盘
 
@@ -941,6 +942,34 @@
 | 3 | 运行远端 `--name-only` 与本地 `git diff --stat` | 两条命令分别覆盖文件集合和行数统计 | 23 个文件与提交范围一致 | 验证闭环，问题关闭 | A |
 
 面试讲述要点：组合命令部分成功时不能把所有输出一起判废；先保留有效的 PR 元数据，再根据 CLI usage 替换不兼容参数，用两条只读命令完成同一审计目标。
+
+### TRB-20260721-040: 递归扫描整盘查找交叉编译器导致探测超时
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.4 全量回归准备 |
+| 模块与版本 | Windows PowerShell 环境探测；既有 `%TEMP%/ai-outdoor-stage2-baseline/mp157-arm-v2` 构建树 |
+| 环境与前提 | 纯主机只读检查；未启动构建、未访问 COM3/COM9 或板端。 |
+| 问题现象 | 枚举临时构建树后又从 `C:\Program Files` 和 `C:\` 递归搜索 `arm-none-linux-gnueabihf-g++.exe`，命令在 20 秒上限超时并返回 124。 |
+| 影响范围 | 第一段已输出临时构建树清单，但交叉编译器搜索未完成；文件、进程、硬件与构建产物未改变，不能把该组合命令记为完整通过。 |
+| 复现步骤 | 对系统盘根目录执行递归 `Get-ChildItem -Filter arm-none-linux-gnueabihf-g++.exe -Recurse`，并设置 20 秒命令超时。 |
+| 预期结果 | 快速取得当前 ARM 构建实际使用的编译器路径。 |
+| 实际结果 | 系统盘递归遍历超过时限，被工具终止。 |
+| 根因结论 | 已有 CMake cache 直接记录工具链路径，整盘递归搜索既无必要又会遍历大量无关目录；超时日志和随后 cache 的 `CMAKE_CXX_COMPILER` 行构成直接证据。 |
+| 最终方案 | 读取既有 `mp157-arm-v2/CMakeCache.txt` 的 `CMAKE_CXX_COMPILER`、`CMAKE_MAKE_PROGRAM` 和 `CMAKE_BUILD_TYPE`，以该精确构建树执行增量重配置/构建。 |
+| 验证结果 | cache 在一次只读命令中返回 GNU ARM Linux 9.2.1 编译器与 Ninja 精确路径；随后同一构建树完成 24 个目标增量编译/链接，Runtime、query、terminal、socket self-test 分别为 273944 B、23168 B、40124 B、64336 B。 |
+| 剩余风险 | 本探测问题已关闭；ARM 产物只完成交叉链接，真实执行仍属于后续 MP157 验收。 |
+| 证据与关联资料 | 首轮 `command timed out after 20255 milliseconds`；CMake cache 的 `CMAKE_CXX_COMPILER:UNINITIALIZED=...arm-none-linux-gnueabihf-g++.exe`。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 同时枚举临时构建树并递归搜索系统盘 | 希望恢复前序回归所用环境 | 构建树已列出，整盘搜索超时 | 不再扩大搜索范围 | A |
+| 2 | 读取已确认 ARM 构建树的 CMake cache | CMake 必须持久记录实际编译器和生成器 | 精确返回编译器、Ninja 与 Release 配置 | 直接复用该构建树进行回归 | A |
+
+面试讲述要点：环境定位优先读取构建系统已经固化的事实，而不是扫描整台机器；超时后缩小故障域到单个 CMake cache，既更快也能证明工具链与目标构建的真实关联。
 
 ## 新问题记录模板
 

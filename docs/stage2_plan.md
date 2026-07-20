@@ -39,9 +39,22 @@ Stage 2 目标：在 Stage 1 传感器数据链路和协作式 Runtime 基础上
 
 真实模型 backend、语音/触摸对话、历史记忆和任务执行不属于已完成 Stage 2.3；没有形成依赖选型与板端资源证据前继续标为 planned。
 
+## Stage 2.4: Repeatable Board Acceptance Harness
+
+- [x] 增加只接受 `--confirm` 的 root 板端入口，不由部署流程自动执行
+- [x] 在第一次 service mutation 前保存 active/enabled 状态，并由 EXIT/INT/TERM 收尾恢复
+- [x] 拒绝活动长测、异常 systemd 初始状态和不属于该 unit 的 Runtime 进程
+- [x] 部署并运行隔离的 Unix socket self-test，覆盖 stale path、active collision、真实查询和退出 unlink
+- [x] 固化 Runtime 目录/socket 权限、连续三次查询和 Agent mock 无/有 context 验收
+- [x] 固化 SIGTERM 停止/socket 清理、再次启动和单次 SIGKILL 自动恢复验收
+- [x] 输出独立 report、JSON、hash、systemd-analyze 和 journal 证据目录
+- [x] 增加纯主机契约 verifier 与六个安全边界负向 fixture，并纳入完整 Runtime verifier
+- [x] ADR-0028 记录显式确认、固定目标、状态恢复和不触碰整板电源/烧录的取舍
+- [ ] 在真实 MP157 上由用户显式执行并回传完整证据目录
+
 ## 当前验收边界
 
-- Stage 2.1、Stage 2.2 和 Stage 2.3 纯软件实现已完成；三阶段真实 MP157 集成验收均保留未完成。
+- Stage 2.1、Stage 2.2、Stage 2.3 和 Stage 2.4 纯软件实现已完成；板端验收入口已准备但尚未执行，前三阶段真实 MP157 集成结论仍保留未完成。
 - 当前 Windows 环境没有可用 WSL 发行版、Docker/Podman 或 ARM 用户态模拟器，因此 POSIX socket 集成测试源码未在本机 Linux 用户态执行。
 - 按当前任务约束，本轮没有通过 COM3/COM9 触发板端命令，也没有执行烧录、复位、物理上下电或真实硬件交互。
 - Stage 1 中 ICM42688 电气/波形、室外 GNSS fix、罗盘实采标定、SD/双串口/framebuffer 小时级和掉电验收继续保持未完成，不因 Stage 2 软件推进而改变。
