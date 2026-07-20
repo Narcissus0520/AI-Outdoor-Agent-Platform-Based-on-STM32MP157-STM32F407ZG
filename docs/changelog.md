@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added schema-v1 bounded Local Agent request/response types, a replaceable `IAgentBackend`, synchronous `LocalAgentService`, deterministic `mock_no_inference`, and JSON serialization.
+- Added `outdoor_agent_terminal` with JSON/text output and opt-in read-only Runtime status context, plus boundary/error/backend/CLI tests and ADR-0027.
 - Added a systemd `Type=simple` Runtime unit, headless live-source service config, volatile `/run/outdoor-agent` status/socket paths, bounded failure restart, SIGTERM handling, sandboxing, and a closed device allow-list.
 - Added Runtime supervision contract verification plus negative fixtures for disabled restart, unbounded restart, widened device policy, and disabled service socket.
 - Added ADR-0026 and a deployment flow that installs the Runtime unit/config by default but requires explicit switches to enable or start it.
@@ -15,11 +17,14 @@
 
 ### Changed
 
+- `UnixStatusClient` now accepts a caller-selected response limit; the Agent terminal constrains Runtime context reads to 64 KiB while the standalone query client retains its 1 MiB default.
+- MP157 deployment now packages `outdoor_agent_terminal`; this does not enable a model runtime or start any Agent daemon.
 - MP157 deployment now packages `outdoor-agent-runtime.service` and `outdoor_agent_service.conf`; `-StartRuntimeService` implies `-EnableRuntimeService`, while the default performs no Runtime enable/start action.
 - MP157 deployment packaging now includes both `outdoor_core_runtime` and `outdoor_status_query`; the status socket remains disabled by default so existing finite file/mock runs retain their prior lifecycle.
 
 ### Verification
 
+- MP157 Windows GCC Release CTest passed 14/14, including Local Agent boundary, terminal help, and deterministic mock smoke; GNU ARM Linux 9.2.1 linked the Agent terminal and all targets. No real inference or board execution was performed.
 - Runtime supervision contract and four negative fixtures passed; the full Runtime verifier loaded the service config and completed a file/mock no-hardware smoke. No deployment or systemd state change was executed.
 - MP157 Windows GCC Release CTest passed 11/11, Runtime verifier passed, and GNU ARM Linux 9.2.1 linked all Runtime, query-client, and Unix socket test targets. No COM3/COM9, deployment, reset, power-cycle, or board action was performed.
 - F407 GCC Release and MSVC Debug CTest passed 7/7 after replacing standard `assert`; the F407 ARM firmware build also passed.

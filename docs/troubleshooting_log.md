@@ -74,6 +74,7 @@
 | TRB-20260721-035 | 2026-07-21 | MP157 ARM Build | PowerShell 将交叉编译器变量作为字面量传给 CMake | 已关闭 | A | [记录](#trb-20260721-035-powershell-将交叉编译器变量作为字面量传给-cmake) |
 | TRB-20260721-036 | 2026-07-21 | MP157 Unix IPC Test | ARM 测试目标使用 `std::thread` 但未显式链接 pthread | 已关闭 | A | [记录](#trb-20260721-036-arm-测试目标未显式链接-pthread) |
 | TRB-20260721-037 | 2026-07-21 | Runtime Supervision Tests | PowerShell 把预期失败子进程 stderr 提升为终止错误 | 已关闭 | A | [记录](#trb-20260721-037-powershell-把预期失败子进程-stderr-提升为终止错误) |
+| TRB-20260721-038 | 2026-07-21 | Stage 2.3 Verification | 提交前语法检查引用不存在的 verifier 文件名 | 已关闭 | A | [记录](#trb-20260721-038-提交前语法检查引用不存在的-verifier-文件名) |
 
 ## 问题详细复盘
 
@@ -881,6 +882,35 @@
 | 3 | `.ps1` 调用只依赖异常传播，native 子进程仍在局部检查退出码 | PowerShell 脚本失败会 throw，成功不保证重置全局 `$LASTEXITCODE` | 独立自测和完整 Runtime verifier 均通过 | 两层误判全部闭环，问题关闭 | A |
 
 面试讲述要点：负向测试不仅要让被测程序失败，还要证明测试框架能可靠地区分“预期拒绝”和“驱动崩溃”；对子进程 stderr 和退出码的语义必须显式建模。
+
+### TRB-20260721-038: 提交前语法检查引用不存在的 verifier 文件名
+
+| 字段 | 记录 |
+| --- | --- |
+| 状态 | 已关闭 |
+| 首次发现时间 | 2026-07-21，Stage 2.3 提交前静态检查 |
+| 模块与版本 | `agent/stage2-local-agent-boundary`；PowerShell 脚本验证命令 |
+| 环境与前提 | Windows PowerShell 5.1；纯主机检查，未访问 COM3/COM9、板端或电源。 |
+| 问题现象 | 语法检查依次通过三个真实脚本后，`Resolve-Path` 报告 `verify_runtime_supervision_contract.ps1` 不存在。 |
+| 影响范围 | 该轮组合检查返回 1；已通过的三个脚本和产品代码未受影响，不能把组合检查记为完整通过。 |
+| 复现步骤 | 在脚本数组中手工加入不存在的 `mp157/outdoor-core-service/scripts/verify_runtime_supervision_contract.ps1` 后逐项执行 PowerShell parser。 |
+| 预期结果 | 对仓库内实际存在的 deploy、Runtime 和 supervision 脚本完成语法解析。 |
+| 实际结果 | `Resolve-Path` 在第四个、并不存在的路径失败。 |
+| 根因结论 | 检查命令凭记忆猜测了 verifier 文件名；仓库中的真实负向自测文件为 `verify_runtime_supervision_tests.ps1`。`Get-ChildItem` 文件清单直接证明该路径差异。 |
+| 最终方案 | 从仓库实际文件清单选择 `verify_runtime.ps1`、`verify_runtime_supervision.ps1`、`verify_runtime_supervision_tests.ps1` 和根目录 deploy 脚本，重新执行 parser；不修改产品脚本。 |
+| 验证结果 | 四个实际脚本均由 PowerShell parser 完成一次解析且错误数为零；后续完整 Runtime verifier 再覆盖可执行行为。 |
+| 剩余风险 | 本问题已关闭；后续检查应从文件清单派生目标，避免手工猜测路径。 |
+| 证据与关联资料 | 首轮 `Resolve-Path ... verify_runtime_supervision_contract.ps1 ... does not exist` 输出；`Get-ChildItem` 返回的真实脚本清单。 |
+
+排查时间线：
+
+| 时间/顺序 | 假设或动作 | 依据 | 实际结果 | 结论/下一步 | 证据等级 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 手工列出四个预期脚本并解析 | 希望一次完成提交前语法检查 | 前三个通过，第四个路径不存在 | 检查文件名而不是修改产品代码 | A |
+| 2 | 用 `Get-ChildItem` 枚举 Runtime/supervision 脚本 | `Resolve-Path` 已明确指出路径不存在 | 找到真实文件名 `verify_runtime_supervision_tests.ps1` | 以实际清单重跑 parser | A |
+| 3 | 解析四个实际脚本 | 验证错误仅来自检查路径 | 全部零语法错误 | 根因和验证闭环，问题关闭 | A |
+
+面试讲述要点：先用错误路径限定故障在测试驱动，再以仓库文件清单作为直接证据；修正验证输入并重跑，不因工具命令失误去改动产品代码。
 
 ## 新问题记录模板
 

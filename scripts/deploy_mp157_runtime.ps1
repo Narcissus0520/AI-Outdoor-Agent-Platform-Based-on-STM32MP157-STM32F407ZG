@@ -2,6 +2,7 @@ param(
     [string]$PortName = "COM9",
     [string]$RuntimePath = "",
     [string]$StatusQueryPath = "",
+    [string]$AgentTerminalPath = "",
     [string]$ConfigPath = "",
     [string]$RuntimeServiceConfigPath = "",
     [string]$InstallRoot = "/opt/outdoor-agent",
@@ -32,6 +33,9 @@ if ([string]::IsNullOrWhiteSpace($RuntimePath)) {
 if ([string]::IsNullOrWhiteSpace($StatusQueryPath)) {
     $StatusQueryPath = Join-Path $repoRoot "mp157/outdoor-core-service/build-arm/outdoor_status_query"
 }
+if ([string]::IsNullOrWhiteSpace($AgentTerminalPath)) {
+    $AgentTerminalPath = Join-Path $repoRoot "mp157/outdoor-core-service/build-arm/outdoor_agent_terminal"
+}
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $repoRoot "mp157/outdoor-core-service/config/runtime.conf"
 }
@@ -57,6 +61,7 @@ $mcuCompassMockFramesPath = Join-Path $repoRoot "mp157/outdoor-core-service/data
 $localFiles = @(
     @{ Local = $RuntimePath; Remote = "$InstallRoot/bin/outdoor_core_runtime"; Mode = "0755" },
     @{ Local = $StatusQueryPath; Remote = "$InstallRoot/bin/outdoor_status_query"; Mode = "0755" },
+    @{ Local = $AgentTerminalPath; Remote = "$InstallRoot/bin/outdoor_agent_terminal"; Mode = "0755" },
     @{ Local = $ConfigPath; Remote = "$InstallRoot/config/runtime.conf"; Mode = "0644" },
     @{ Local = $RuntimeServiceConfigPath; Remote = "$InstallRoot/config/outdoor_agent_service.conf"; Mode = "0644" },
     @{ Local = $healthPreflightPath; Remote = "$InstallRoot/scripts/run_board_health_preflight.sh"; Mode = "0755" },

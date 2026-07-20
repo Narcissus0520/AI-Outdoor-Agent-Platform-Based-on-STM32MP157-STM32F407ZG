@@ -41,6 +41,8 @@ Stage 2.1 在保留原子 JSON 文件发布的基础上新增 `UnixStatusService
 
 Stage 2.2 新增 `deploy/systemd/outdoor-agent-runtime.service` 和 `config/outdoor_agent_service.conf`。unit 以 `Type=simple` 托管 headless live-source Runtime，依赖 ICM20608 loader，在 `/run/outdoor-agent` 发布 JSON/socket，并限制失败重启、可写目录、地址族和可访问设备。`verify_runtime_supervision*.ps1` 覆盖当前契约及四个不安全变体；部署默认只安装、不 enable/start，真实 systemd 生命周期待 MP157 后续验收。
 
+Stage 2.3 新增 `include/agent/`、`src/agent/` 和 `outdoor_agent_terminal`。`LocalAgentService` 校验 schema v1 与固定字节上限，通过 `IAgentBackend` 调用当前唯一的 `mock_no_inference`，并序列化 completed/rejected/failed 响应；terminal 默认独立运行，只有显式 `--status-socket` 才读取只读 Runtime context。该目录没有真实模型 runtime、网络 daemon、对话历史或任务执行。
+
 F407 当前还通过 `sensor_magnetometer` 帧上报 MMC5603 三轴磁场，MP157 Runtime 将其解析为独立 `magnetometer` 状态。`include/navigation/compass_estimator.h` 与 `src/navigation/compass_estimator.cpp` 再组合时间接近的 ICM42688 加速度，执行硬铁、3×3 软铁/安装矩阵、倾斜补偿和磁偏角修正，输出独立 `compass` 状态；默认系数只标记为 `uncalibrated`，真实板标定待完成。
 
 F407 BMP390 通过 `sensor_barometer` 帧上报补偿后的气压和温度，MP157 Runtime 将其解析为独立 `barometer` 状态；2026-07-18 已完成真实上板验证。F407 I2C2 BSP 还会在运行期事务失败后硬复位外设、释放共享总线并重试一次，2026-07-19 已通过 60 秒三传感器持续采集。
@@ -128,4 +130,4 @@ scripts/send_xmodem.ps1
 scripts/deploy_mp157_runtime.ps1
 ```
 
-`build_mp157.sh` 构建 MP157 Runtime；`build_f407.ps1` 使用 GNU Arm Embedded Toolchain 和 Ninja 构建 F407 固件；`flash_f407_uart.ps1` 通过 STM32 ROM UART Bootloader 烧录并回读校验 F407 固件；`verify_f407_uart.ps1` 通过 COM6/USART1 诊断镜像验证协议帧；`send_xmodem.ps1` 通过 MP157 串口 console 和板端 `rx` 可靠上传 XMODEM-CRC 文件，并移除协议分组填充；`deploy_mp157_runtime.ps1` 在前者基础上完成 `/opt/outdoor-agent`、验证脚本、ICM20608 loader unit 和 Runtime unit/config 的幂等部署与哈希/状态验收。Runtime unit 默认不 enable/start，状态变更需显式开关。
+`build_mp157.sh` 构建 MP157 Runtime、status query 和 Agent terminal；`build_f407.ps1` 使用 GNU Arm Embedded Toolchain 和 Ninja 构建 F407 固件；`flash_f407_uart.ps1` 通过 STM32 ROM UART Bootloader 烧录并回读校验 F407 固件；`verify_f407_uart.ps1` 通过 COM6/USART1 诊断镜像验证协议帧；`send_xmodem.ps1` 通过 MP157 串口 console 和板端 `rx` 可靠上传 XMODEM-CRC 文件，并移除协议分组填充；`deploy_mp157_runtime.ps1` 在前者基础上完成 `/opt/outdoor-agent`、三个可执行文件、验证脚本、ICM20608 loader unit 和 Runtime unit/config 的幂等部署与哈希/状态验收。Runtime unit 默认不 enable/start，状态变更需显式开关。

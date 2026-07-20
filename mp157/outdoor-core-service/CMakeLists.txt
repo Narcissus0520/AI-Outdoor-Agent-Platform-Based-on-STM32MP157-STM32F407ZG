@@ -10,6 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(OUTDOOR_CORE_SOURCES
+    src/agent/agent_response_serializer.cpp
+    src/agent/local_agent_service.cpp
+    src/agent/mock_agent_backend.cpp
     src/config/config_loader.cpp
     src/gnss/gnss_status.cpp
     src/gnss/nmea_parser.cpp
@@ -68,6 +71,15 @@ add_executable(outdoor_status_query
 )
 
 target_link_libraries(outdoor_status_query
+    PRIVATE
+        outdoor_core
+)
+
+add_executable(outdoor_agent_terminal
+    src/agent_terminal_main.cpp
+)
+
+target_link_libraries(outdoor_agent_terminal
     PRIVATE
         outdoor_core
 )
@@ -197,3 +209,19 @@ target_link_libraries(compass_estimator_tests
 )
 
 add_test(NAME compass_estimator_tests COMMAND compass_estimator_tests)
+
+add_executable(local_agent_service_tests
+    tests/local_agent_service_tests.cpp
+)
+
+target_link_libraries(local_agent_service_tests
+    PRIVATE
+        outdoor_core
+)
+
+add_test(NAME local_agent_service_tests COMMAND local_agent_service_tests)
+add_test(NAME outdoor_agent_terminal_help COMMAND outdoor_agent_terminal --help)
+add_test(
+    NAME outdoor_agent_terminal_mock
+    COMMAND outdoor_agent_terminal --prompt status --request-id ctest-1 --format json
+)

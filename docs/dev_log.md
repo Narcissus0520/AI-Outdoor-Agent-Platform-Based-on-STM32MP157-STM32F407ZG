@@ -1,5 +1,45 @@
 # Dev Log
 
+## 2026-07-21 - Stage 2.3 Local Agent Mock Boundary
+
+### 本次完成
+
+- 新增 schema v1 `AgentRequest`/`AgentResponse`、completed/rejected/failed 状态和稳定 error code。
+- 新增可替换 `IAgentBackend` 与同步单请求 `LocalAgentService`，限制 ID、prompt、Runtime context、backend 名、成功正文和错误长度。
+- 服务拒绝非法 schema/ID、空/多行/超长 prompt、超长 context，并隔离 backend 缺失、失败、异常、空响应和超长响应。
+- 新增 `MockAgentBackend`，名称固定为 `mock_no_inference`，所有成功正文明确声明没有执行 AI inference。
+- 新增 `outdoor_agent_terminal` JSON/text CLI；默认不依赖 Runtime，只有显式 `--status-socket` 才读取现有只读状态 context。
+- 部署脚本增加 Agent terminal，不改变 Runtime unit 默认只安装、不 enable/start 的边界。
+- ADR-0027 比较立即本地模型、远程 HTTP 与接口优先方案，并记录第三方依赖、ARM、RAM/CPU/存储、温升、离线、许可证、deadline/cancellation 和隔离门槛。
+
+### 修改文件
+
+- `mp157/outdoor-core-service/include/agent/`
+- `mp157/outdoor-core-service/src/agent/`
+- `mp157/outdoor-core-service/src/agent_terminal_main.cpp`
+- `mp157/outdoor-core-service/include/ipc/unix_status_client.h`、`src/ipc/unix_status_client.cpp`
+- `mp157/outdoor-core-service/tests/local_agent_service_tests.cpp`
+- `mp157/outdoor-core-service/CMakeLists.txt`
+- `scripts/deploy_mp157_runtime.ps1`
+- `README.md`、`mp157/outdoor-core-service/README.md`
+- `docs/project_design.md`、`docs/repo_structure.md`、`docs/stage2_plan.md`
+- `docs/adr/0027-define-local-agent-backend-boundary.md`
+- `docs/changelog.md`、`docs/dev_log.md`、`docs/troubleshooting_log.md`
+
+### 验证结果
+
+- MP157 Windows GCC Release CTest 14/14 通过，包含 Local Agent 边界、terminal help 和 mock smoke。
+- GNU ARM Linux 9.2.1 完成 Runtime、status query、Agent terminal 和全部测试目标交叉链接；三项产物分别为 273944 B、23168 B、40124 B。
+- 完整 `verify_runtime.ps1`、F407 GCC Release CTest 7/7、PowerShell parser 和 `git diff --check` 通过。
+- 未引入第三方依赖，未实现或宣称真实 AI 推理。
+- 未执行 deploy script、COM3/COM9、板端 terminal、systemd 状态变更、复位或物理上下电。
+
+### 后续 TODO
+
+- 后续在 MP157 验证 mock terminal 无 context 和显式 Runtime context 两条路径。
+- 采集 MP157 资源/温升/交互时延门槛后，再单独选择真实本地或远程 backend 并新增 ADR。
+- 真实 backend 前补充可终止 deadline、cancellation、进程隔离和 crash recovery。
+
 ## 2026-07-21 - Stage 2.2 Runtime Process Supervision
 
 ### 本次完成
